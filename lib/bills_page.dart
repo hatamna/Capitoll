@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'bill_details_page.dart';
+import 'past_bills_details_page.dart';
 import 'dart:ui';
 
 // Vote Status enum for clear status mapping
@@ -196,7 +198,14 @@ class BillVoteTile extends StatelessWidget {
                   ),
                   iconSize: 24.0,
                   color: Colors.black87,
-                  onPressed: onTap,
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const BillDetailPage(),
+                      ),
+                    );
+                  }
                 ),
               ],
             ),
@@ -299,7 +308,14 @@ class PastVoteTile extends StatelessWidget {
                   ),
                   iconSize: 24.0,
                   color: Colors.black87,
-                  onPressed: onTap,
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const PastBillDetailPage(),
+                      ),
+                    );
+                  }
                 ),
               ],
             ),
