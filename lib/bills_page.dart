@@ -202,7 +202,9 @@ class BillVoteTile extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => const BillDetailPage(),
+                        builder: (context) => BillDetailPage(
+                          billNum: billNum,
+                        ),
                       ),
                     );
                   }
@@ -312,7 +314,7 @@ class PastVoteTile extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => const PastBillDetailPage(),
+                        builder: (context) =>  PastBillDetailPage(),
                       ),
                     );
                   }
