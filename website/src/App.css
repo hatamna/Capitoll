@@ -1,0 +1,500 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+
+  background: #ffffff;
+  color: #171717;
+}
+
+.page {
+  min-height: 100vh;
+
+  display: flex;
+  flex-direction: column;
+
+  background-image:
+    linear-gradient(rgba(0, 0, 0, 0.22),
+      rgba(0, 0, 0, 0.22)),
+    url('./assets/parliamen.png');
+
+  background-size: 100% auto;
+  background-position: center -97px;
+  background-repeat: no-repeat;
+
+  background-color: #0066ad;
+}
+
+
+/* =========================
+   MAIN AREA
+========================= */
+
+.main {
+  flex: 1;
+
+  position: relative;
+
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+
+  padding-top: 190px;
+
+  background: transparent;
+}
+
+
+/* =========================
+   TOP LOGO
+========================= */
+
+.topLogo {
+  position: absolute;
+
+  top: 25px;
+  left: 35px;
+}
+
+.topLogoImage {
+  width: 190px;
+  height: auto;
+
+  display: block;
+}
+
+
+/* =========================
+   SEARCH AREA
+========================= */
+
+.searchArea {
+  width: min(620px, 90%);
+
+  position: relative;
+  z-index: 10;
+}
+
+
+/* =========================
+   SEARCH BAR
+========================= */
+
+.searchBar {
+  width: 100%;
+
+  display: flex;
+  align-items: center;
+
+  background: rgba(255, 255, 255, 0.68);
+
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+
+  border: 2px solid #222;
+  border-radius: 999px;
+
+  padding: 7px 8px 7px 20px;
+
+  box-shadow:
+    0 8px 25px rgba(0, 0, 0, 0.12);
+
+  position: relative;
+  z-index: 2;
+
+  transition:
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.searchBar:focus-within {
+  background: rgba(255, 255, 255, 0.78);
+
+  box-shadow:
+    0 10px 35px rgba(0, 0, 0, 0.18);
+}
+
+.searchIcon {
+  font-size: 25px;
+  color: #555;
+
+  margin-right: 8px;
+
+  transform: translateY(-3px);
+}
+
+.searchBar input {
+  flex: 1;
+  min-width: 0;
+
+  border: none;
+  outline: none;
+
+  padding: 13px 8px;
+
+  background: transparent;
+
+  font-size: 16px;
+  color: #222;
+}
+
+.searchBar input::placeholder {
+  color: #666;
+}
+
+.searchBar button {
+  border: none;
+
+  background: #e51b23;
+  color: white;
+
+  padding: 13px 27px;
+
+  border-radius: 999px;
+
+  font-size: 14px;
+  font-weight: 700;
+
+  cursor: pointer;
+
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease;
+}
+
+.searchBar button:hover {
+  background: #c4141b;
+
+  transform: translateY(-1px);
+}
+
+
+/* =========================
+   SEARCH DROPDOWN
+========================= */
+
+.searchDropdown {
+  position: absolute;
+
+  top: calc(100% + 10px);
+  left: 0;
+
+  width: 100%;
+
+  padding: 18px;
+
+  background: rgba(255, 255, 255, 0.76);
+
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+
+  border: 1px solid rgba(255, 255, 255, 0.5);
+
+  border-radius: 22px;
+
+  box-shadow:
+    0 15px 45px rgba(0, 0, 0, 0.18);
+}
+
+.searchLabel {
+  margin: 0 0 10px;
+
+  font-size: 12px;
+  font-weight: 700;
+
+  color: #555;
+
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+
+/* =========================
+   SEARCH CATEGORY BUTTONS
+========================= */
+
+.searchCategories {
+  display: flex;
+
+  gap: 8px;
+
+  margin-bottom: 16px;
+}
+
+.searchCategories button {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+
+  background: rgba(255, 255, 255, 0.65);
+
+  padding: 8px 15px;
+
+  border-radius: 999px;
+
+  font-size: 13px;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  transition: 0.2s;
+}
+
+.searchCategories button:hover {
+  background: white;
+}
+
+.searchCategories .activeCategory {
+  background: #e51b23;
+  color: white;
+
+  border-color: #e51b23;
+}
+
+
+/* =========================
+   SEARCH HINT
+========================= */
+
+.searchHint {
+  display: flex;
+  align-items: center;
+
+  gap: 13px;
+
+  padding: 13px 5px 3px;
+}
+
+.hintIcon {
+  width: 38px;
+  height: 38px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 50%;
+
+  background: rgba(229, 27, 35, 0.1);
+
+  color: #e51b23;
+
+  font-size: 22px;
+}
+
+.searchHint strong {
+  font-size: 14px;
+}
+
+.searchHint p {
+  margin: 3px 0 0;
+
+  color: #666;
+
+  font-size: 13px;
+}
+
+
+/* =========================
+   SEARCH SUGGESTION
+========================= */
+
+.searchSuggestion {
+  width: 100%;
+
+  display: flex;
+  align-items: center;
+
+  gap: 13px;
+
+  border: none;
+
+  background: rgba(255, 255, 255, 0.55);
+
+  padding: 12px;
+
+  border-radius: 14px;
+
+  cursor: pointer;
+
+  text-align: left;
+
+  transition: 0.2s;
+}
+
+.searchSuggestion:hover {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.suggestionIcon {
+  width: 38px;
+  height: 38px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 50%;
+
+  background: #e51b23;
+  color: white;
+
+  font-size: 20px;
+}
+
+.searchSuggestion div {
+  flex: 1;
+}
+
+.searchSuggestion strong {
+  font-size: 14px;
+}
+
+.searchSuggestion p {
+  margin: 3px 0 0;
+
+  color: #666;
+
+  font-size: 13px;
+}
+
+.arrow {
+  font-size: 22px;
+  color: #555;
+}
+
+
+/* =========================
+   SMALL FOOTER
+========================= */
+
+.footer {
+  min-height: 42px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 6px 35px;
+
+  background: rgba(255, 255, 255, 0.68);
+
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+
+  border-top: 1px solid rgba(255, 255, 255, 0.35);
+
+  font-size: 12px;
+  color: #444;
+}
+
+.footerCopyright {
+  font-weight: 500;
+}
+
+.footerLinks {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.footerLinks button {
+  border: none;
+  background: transparent;
+
+  padding: 0;
+
+  color: #444;
+
+  font-family: inherit;
+  font-size: 12px;
+
+  cursor: pointer;
+}
+
+.footerLinks button:hover {
+  color: #e51b23;
+}
+
+.footerHackathon {
+  font-weight: 500;
+}
+
+.canada {
+  display: flex;
+  align-items: center;
+
+  gap: 6px;
+
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.flag {
+  font-size: 20px;
+}
+
+
+/* =========================
+   MOBILE
+========================= */
+
+@media (max-width: 700px) {
+
+  .page {
+    background-size: auto 100%;
+    background-position: center top;
+  }
+
+  .main {
+    padding-top: 155px;
+  }
+
+  .topLogo {
+    top: 20px;
+    left: 20px;
+  }
+
+  .topLogoImage {
+    width: 150px;
+  }
+
+  .searchArea {
+    width: 88%;
+  }
+
+  .searchCategories {
+    flex-wrap: wrap;
+  }
+
+  .searchDropdown {
+    padding: 14px;
+  }
+
+  .searchBar button {
+    padding: 12px 18px;
+  }
+
+  .footer {
+    min-height: 55px;
+
+    padding: 8px 20px;
+  }
+
+  .footerLogoImage {
+    width: 90px;
+  }
+
+  .footerLeft p {
+    display: none;
+  }
+
+}
