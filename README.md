@@ -1,17 +1,12 @@
-# hthiii
+# Capitoll
 
-A new Flutter project.
+Platform for connecting people and government.
 
-## Getting Started
+This project was made as part of the Hack The Hill 3 hackathon.
 
-This project is a starting point for a Flutter application.
+Our app and accompanying website allow for people to express their opinions on individual laws and holds politicians liable for listening to their voters.
 
-A few resources to get you started if this is your first Flutter project:
+This was mostly made using Flutter on VS Code, with some icons from https://fonts.google.com/icons.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+As part of the hackathon, Tiger Data was used for the shared back-end.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
