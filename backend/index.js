@@ -65,6 +65,36 @@ app.post('/api/votes', async (req, res) => {
             });
         }
 
+        const billResult = await pool.query(
+            'SELECT voting_open FROM bills WHERE id = $1',
+            [bill_id]);
+
+        if (billResult.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'Bill not found'
+            });
+        }
+
+        if (!billResult.rows[0].voting_open) {
+            return res.status(400).json({
+                success: false,
+                error: 'Voting is closed for this bill'
+            });
+        }
+
+        const ridingResult = await pool.query(
+            'SELECT id FROM ridings WHERE id = $1',
+            [riding_id]
+        );
+
+        if (ridingResult.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'Riding not found'
+            });
+        }
+
         const result = await pool.query(
             `
             INSERT INTO votes (bill_id, riding_id, choice)
@@ -90,29 +120,148 @@ app.post('/api/votes', async (req, res) => {
 });
 
 app.get('/api/bills/:billId/results', async (req, res) => {
-    try {
-        const billId = req.params.billId;
-        const ridingId = req.query.riding_id;
+    const { billId } = req.params;
+    const { riding_id } = req.query;
 
+    try {
         const result = await pool.query(
-            `
-            SELECT choice, COUNT(*) AS total_votes
-            FROM votes
-            WHERE bill_id = $1
-              AND riding_id = $2
-            GROUP BY choice
-            `,
-            [billId, ridingId]
+            `SELECT choice, COUNT(*) AS total_votes
+             FROM votes
+             WHERE bill_id = $1
+               AND riding_id = $2
+             GROUP BY choice`,
+            [billId, riding_id]
         );
 
-        res.json(result.rows);
+        const counts = {
+            YES: 0,
+            NO: 0,
+            ABSTAIN: 0
+        };
+
+        result.rows.forEach(row => {
+            counts[row.choice] = parseInt(row.total_votes);
+        });
+
+        const totalResponses =
+            counts.YES +
+            counts.NO +
+            counts.ABSTAIN;
+
+        const getPercentage = (count) => {
+            if (totalResponses === 0) {
+                return 0;
+            }
+
+            return Math.round((count / totalResponses) * 100);
+        };
+
+        res.json({
+            bill_id: parseInt(billId),
+            riding_id: parseInt(riding_id),
+            total_responses: totalResponses,
+
+            results: {
+                YES: {
+                    count: counts.YES,
+                    percentage: getPercentage(counts.YES)
+                },
+
+                NO: {
+                    count: counts.NO,
+                    percentage: getPercentage(counts.NO)
+                },
+
+                ABSTAIN: {
+                    count: counts.ABSTAIN,
+                    percentage: getPercentage(counts.ABSTAIN)
+                }
+            }
+        });
 
     } catch (error) {
         console.error(error);
 
         res.status(500).json({
-            success: false,
-            error: 'Failed to fetch vote results'
+            error: 'Failed to get results'
+        });
+    }
+});
+
+app.get('/api/bills/:id', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const result = await pool.query(
+            'SELECT * FROM bills WHERE id = $1',
+            [id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                error: 'Bill not found'
+            });
+        }
+
+        res.json(result.rows[0]);
+
+    } catch (error) {
+        console.error(error);
+
+        res.status(500).json({
+            error: 'Failed to get bill'
+        });
+    }
+});
+
+app.get('/api/ridings/:id', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const result = await pool.query(
+            'SELECT * FROM ridings WHERE id = $1',
+            [id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                error: 'Riding not found'
+            });
+        }
+
+        res.json(result.rows[0]);
+
+    } catch (error) {
+        console.error(error);
+
+        res.status(500).json({
+            error: 'Failed to get riding'
+        });
+    }
+});
+
+app.get('/api/mps/:id', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const result = await pool.query(
+            'SELECT * FROM mps WHERE id = $1',
+            [id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                error: 'MP not found'
+            });
+        }
+
+        res.json(result.rows[0]);
+
+    } catch (error) {
+        console.error(error);
+
+        res.status(500).json({
+            error: 'Failed to get MP'
         });
     }
 });
