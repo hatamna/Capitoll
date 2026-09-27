@@ -8,5 +8,5 @@ Our app and accompanying website allow for people to express their opinions on i
 
 This was mostly made using Flutter on VS Code, with some icons from https://fonts.google.com/icons.
 
-As part of the hackathon, Tiger Data was used for the shared back-end.
+As part of the hackathon, Tiger Data was used for the shared back-end and Groq AI is implemented to provide real time explanations.
 
