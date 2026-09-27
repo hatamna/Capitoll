@@ -3,7 +3,6 @@ import 'bill_details_page.dart';
 import 'past_bills_details_page.dart';
 import 'dart:ui';
 
-// Vote Status enum for clear status mapping
 enum VoteStatus { yes, no, abstained }
 
 class BillsPage extends StatelessWidget {
@@ -25,7 +24,6 @@ class BillsPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
-
             BillVoteTile(
               billNum: 'C-234',
               billTitle: 'An Act to amend the Greenhouse Gas Pollution Pricing Act',
@@ -33,7 +31,6 @@ class BillsPage extends StatelessWidget {
               onTap: () {},
             ),
             const SizedBox(height: 12),
-
             BillVoteTile(
               billNum: 'C-11',
               billTitle: 'Online Streaming Act',
@@ -41,7 +38,6 @@ class BillsPage extends StatelessWidget {
               onTap: () {},
             ),
             const SizedBox(height: 12),
-
             BillVoteTile(
               billNum: 'C-18',
               billTitle: 'Online News Act',
@@ -49,7 +45,6 @@ class BillsPage extends StatelessWidget {
               onTap: () {},
             ),
             const SizedBox(height: 12),
-
             BillVoteTile(
               billNum: 'C-35',
               billTitle: 'Canada Early Learning and Child Care Act',
@@ -57,14 +52,12 @@ class BillsPage extends StatelessWidget {
               onTap: () {},
             ),
             const SizedBox(height: 12),
-
             BillVoteTile(
               billNum: 'C-27',
               billTitle: 'Digital Charter Implementation Act',
               voteStatus: VoteStatus.no,
               onTap: () {},
             ),
-
             const SizedBox(height: 30),
             const Text(
               'Past Bills',
@@ -74,7 +67,6 @@ class BillsPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
-
             PastVoteTile(
               billNum: "C-46",
               billTitle: "An Act to amend the Criminal Code (offences relating to conveyances) and to make consequential amendments to other Acts",
