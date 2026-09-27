@@ -77,6 +77,87 @@ function makeVoteUpsertQuery(participants, billCode) {
     };
 }
 
+function mapVotesByRiding(participants, mps, decision) {
+    const mpsById = new Map(
+        mps.map(mp => [String(mp.person_id), mp])
+    );
+    const votesByRiding = {};
+
+    for (const participant of participants) {
+        const mp = mpsById.get(participant.personId);
+        const sessionKey =
+            `${decision.parliamentNumber}-${decision.sessionNumber}`;
+        const ridingName = mp?.ridings_by_parliament?.[sessionKey];
+
+        if (ridingName) {
+            votesByRiding[ridingName] ??= [];
+            votesByRiding[ridingName].push({
+                person_id: participant.personId,
+                choice: participant.choice
+            });
+        }
+    }
+
+    return votesByRiding;
+}
+
+function mergeVotesByRiding(existingVotesByRiding, newVotesByRiding) {
+    const merged = { ...existingVotesByRiding };
+
+    for (const [ridingName, newVotes] of Object.entries(newVotesByRiding)) {
+        const existingVotes = Array.isArray(merged[ridingName])
+            ? merged[ridingName]
+            : [];
+        merged[ridingName] = [...existingVotes, ...newVotes];
+    }
+
+    return merged;
+}
+
+async function initializeBillRidingVoteEntries(
+    pool,
+    parliamentNumber,
+    sessionNumber,
+    resetOfficialVotes = false
+) {
+    const result = await pool.query(`
+        WITH riding_defaults AS (
+            SELECT
+                bill.id,
+                COALESCE(
+                    jsonb_object_agg(riding.name, '[]'::jsonb)
+                        FILTER (WHERE riding.name IS NOT NULL),
+                    '{}'::jsonb
+                ) AS official_votes,
+                COALESCE(
+                    jsonb_object_agg(
+                        riding.name,
+                        jsonb_build_object('Y', 0, 'N', 0, 'A', 0)
+                    ) FILTER (WHERE riding.name IS NOT NULL),
+                    '{}'::jsonb
+                ) AS user_tallies
+            FROM capitoll_v2.bills AS bill
+            LEFT JOIN capitoll_v2.ridings AS riding
+                ON riding.mps_by_parliament ? (
+                    bill.parliament_number::text || '-' || bill.session_number::text
+                )
+            WHERE bill.parliament_number = $1
+              AND bill.session_number = $2
+            GROUP BY bill.id
+        )
+        UPDATE capitoll_v2.bills AS bill
+        SET mp_votes_by_riding = CASE
+                WHEN $3 THEN riding_defaults.official_votes
+                ELSE riding_defaults.official_votes || bill.mp_votes_by_riding
+            END,
+            votes_by_key = riding_defaults.user_tallies || bill.votes_by_key
+        FROM riding_defaults
+        WHERE bill.id = riding_defaults.id
+    `, [parliamentNumber, sessionNumber, resetOfficialVotes]);
+
+    return result.rowCount;
+}
+
 async function importVoteParticipants(pool, decision, fetchImpl = fetch) {
     const url = `${VOTE_PARTICIPANTS_URL}/${decision.parliamentNumber}/${decision.sessionNumber}/${decision.decisionDivisionNumber}/xml`;
     const response = await fetchImpl(url, {
@@ -90,14 +171,64 @@ async function importVoteParticipants(pool, decision, fetchImpl = fetch) {
     const xml = await response.text();
     const { rows } = await pool.query(VOTE_PARTICIPANTS_XML_QUERY, [xml]);
     const participants = mapVoteParticipants(rows, decision);
+    const votesByRiding = {};
 
-    if (participants.length === 0) {
-        return 0;
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        if (participants.length > 0) {
+            const query = makeVoteUpsertQuery(participants, decision.billCode);
+            await client.query(query.text, query.values);
+
+            const personIds = participants.map(participant => participant.personId);
+            const { rows: mps } = await client.query(`
+                SELECT person_id, ridings_by_parliament
+                FROM capitoll_v2.mps
+                WHERE person_id = ANY($1::bigint[])
+            `, [personIds]);
+            Object.assign(
+                votesByRiding,
+                mapVotesByRiding(participants, mps, decision)
+            );
+        }
+
+        const { rows: bills } = await client.query(`
+            SELECT mp_votes_by_riding
+            FROM capitoll_v2.bills
+            WHERE bill_code = $1
+            FOR UPDATE
+        `, [decision.billCode]);
+
+        if (bills.length > 0) {
+            const mpVotesByRiding = mergeVotesByRiding(
+                bills[0].mp_votes_by_riding || {},
+                votesByRiding
+            );
+
+            await client.query(`
+                UPDATE capitoll_v2.bills
+                SET has_been_voted_on = TRUE,
+                    mp_votes_by_riding = $2::jsonb
+                WHERE bill_code = $1
+            `, [decision.billCode, JSON.stringify(mpVotesByRiding)]);
+        }
+
+        await client.query('COMMIT');
+    } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+    } finally {
+        client.release();
     }
 
-    const query = makeVoteUpsertQuery(participants, decision.billCode);
-    await pool.query(query.text, query.values);
     return participants.length;
 }
 
-module.exports = { importVoteParticipants, mapVoteParticipants };
+module.exports = {
+    importVoteParticipants,
+    initializeBillRidingVoteEntries,
+    mergeVotesByRiding,
+    mapVoteParticipants,
+    mapVotesByRiding
+};

@@ -11,6 +11,9 @@ CREATE TABLE IF NOT EXISTS capitoll_v2.bills (
     status TEXT NOT NULL,
     passed_house_third_reading_at TIMESTAMP,
     did_reinstate_from_previous_session BOOLEAN NOT NULL DEFAULT FALSE,
+    has_been_voted_on BOOLEAN NOT NULL DEFAULT FALSE,
+    mp_votes_by_riding JSONB NOT NULL DEFAULT '{}'::jsonb
+        CHECK (jsonb_typeof(mp_votes_by_riding) = 'object'),
     votes_by_key JSONB NOT NULL DEFAULT '{}'::jsonb
         CHECK (jsonb_typeof(votes_by_key) = 'object'),
     CONSTRAINT bills_bill_code_canonical_check
@@ -73,6 +76,13 @@ CREATE TABLE IF NOT EXISTS capitoll_v2.ridings (
 CREATE UNIQUE INDEX IF NOT EXISTS capitoll_v2_ridings_name_unique
     ON capitoll_v2.ridings (name);
 
+CREATE TABLE IF NOT EXISTS capitoll_v2.bill_descriptions (
+    bill_code TEXT PRIMARY KEY
+        REFERENCES capitoll_v2.bills (bill_code) ON DELETE CASCADE,
+    description TEXT NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS capitoll_v2.initial_import_state (
     import_name TEXT PRIMARY KEY,
     completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -99,3 +109,10 @@ ALTER TABLE capitoll_v2.bills
 
 ALTER TABLE capitoll_v2.bills
     ALTER COLUMN passed_house_third_reading_at DROP NOT NULL;
+
+ALTER TABLE capitoll_v2.bills
+    ADD COLUMN IF NOT EXISTS has_been_voted_on BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE capitoll_v2.bills
+    ADD COLUMN IF NOT EXISTS mp_votes_by_riding JSONB NOT NULL DEFAULT '{}'::jsonb
+        CHECK (jsonb_typeof(mp_votes_by_riding) = 'object');
