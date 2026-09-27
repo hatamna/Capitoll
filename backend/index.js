@@ -130,6 +130,10 @@ app.get('/api/v2/bills/:billCode', async (req, res) => {
             SELECT *
             FROM capitoll_v2.bills
             WHERE bill_code = $1
+            ORDER BY
+                parliament_number DESC,
+                session_number DESC
+            LIMIT 1
             `,
             [billCode]
         );
@@ -233,6 +237,370 @@ app.get('/api/v2/bills/:billCode/results', async (req, res) => {
         res.status(500).json({
             success: false,
             error: 'Failed to get vote results'
+        });
+    }
+});
+
+
+// --------------------------------------------------
+// BILL + RIDING COMPARISON
+// Community result vs actual MP vote
+// --------------------------------------------------
+//
+// Example:
+// /api/v2/bill-riding-result?riding_name=Kanata&bill_code=c-5
+//
+
+app.get('/api/v2/bill-riding-result', async (req, res) => {
+    try {
+        const {
+            riding_name,
+            bill_code
+        } = req.query;
+
+
+        // ------------------------------------------
+        // Validate request
+        // ------------------------------------------
+
+        if (!riding_name || !bill_code) {
+            return res.status(400).json({
+                success: false,
+                error: 'riding_name and bill_code are required'
+            });
+        }
+
+
+        const normalizedBillCode =
+            bill_code.toLowerCase().trim();
+
+        const normalizedRidingName =
+            riding_name.trim();
+
+
+        // ------------------------------------------
+        // 1. Find the bill
+        // ------------------------------------------
+
+        const billResult = await pool.query(
+            `
+            SELECT
+                id,
+                bill_code,
+                number_code,
+                parliament_number,
+                session_number,
+                long_title_en,
+                long_title_fr,
+                status,
+                passed_house_third_reading_at
+            FROM capitoll_v2.bills
+            WHERE LOWER(number_code) = LOWER($1)
+            OR LOWER(bill_code) = LOWER($1)
+            ORDER BY
+                parliament_number DESC,
+                session_number DESC
+            LIMIT 1
+            `,
+            [normalizedBillCode]
+        );
+
+
+        if (billResult.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'Bill not found'
+            });
+        }
+
+
+        const bill = billResult.rows[0];
+
+
+        // ------------------------------------------
+        // 2. Find the riding
+        // ------------------------------------------
+
+        const ridingResult = await pool.query(
+            `
+            SELECT
+                id,
+                name,
+                mps_by_parliament
+            FROM capitoll_v2.ridings
+            WHERE LOWER(name) = LOWER($1)
+            LIMIT 1
+            `,
+            [normalizedRidingName]
+        );
+
+
+        if (ridingResult.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'Riding not found'
+            });
+        }
+
+
+        const riding = ridingResult.rows[0];
+
+
+        // ------------------------------------------
+        // 3. Find which MP represented the riding
+        //    during this bill's Parliament/session
+        // ------------------------------------------
+
+        const parliamentKey =
+            String(bill.parliament_number);
+
+
+        const mpHistory =
+            riding.mps_by_parliament?.[parliamentKey];
+
+
+        if (!Array.isArray(mpHistory)) {
+            return res.status(404).json({
+                success: false,
+                error: 'No MP history found for this riding and Parliament'
+            });
+        }
+
+
+        const sessionMp =
+            mpHistory.find(
+                entry =>
+                    Number(entry.sessionNumber) ===
+                    Number(bill.session_number)
+            );
+
+
+        if (!sessionMp?.personId) {
+            return res.status(404).json({
+                success: false,
+                error: 'No MP found for this riding during this bill session'
+            });
+        }
+
+
+        // ------------------------------------------
+        // 4. Get the MP record
+        // ------------------------------------------
+
+        const mpResult = await pool.query(
+            `
+            SELECT
+                person_id,
+                official_first_name,
+                official_last_name,
+                ridings_by_parliament,
+                parties_by_parliament,
+                votes_by_bill
+            FROM capitoll_v2.mps
+            WHERE person_id = $1
+            `,
+            [sessionMp.personId]
+        );
+
+
+        if (mpResult.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'MP record not found'
+            });
+        }
+
+
+        const mp = mpResult.rows[0];
+
+
+        // ------------------------------------------
+        // 5. Get MP party for that session
+        // ------------------------------------------
+
+        let party = null;
+
+
+        const partyHistory =
+            mp.parties_by_parliament?.[parliamentKey];
+
+
+        if (Array.isArray(partyHistory)) {
+            const partySession =
+                partyHistory.find(
+                    entry =>
+                        Number(entry.sessionNumber) ===
+                        Number(bill.session_number)
+                );
+
+
+            party =
+                partySession?.caucusShortName || null;
+        }
+
+
+        // ------------------------------------------
+        // 6. Get actual MP vote
+        //
+        // Database format:
+        // c-5(45-1) -> Y
+        // c-3(45-1) -> N
+        // ------------------------------------------
+
+        const voteKey = bill.bill_code;
+
+        const rawMpVote =
+            mp.votes_by_bill?.[voteKey] ?? null;
+
+
+        let mpVote = null;
+
+
+        if (rawMpVote === 'Y') {
+            mpVote = 'YES';
+        }
+
+        else if (rawMpVote === 'N') {
+            mpVote = 'NO';
+        }
+
+        else if (rawMpVote) {
+            mpVote = rawMpVote;
+        }
+
+
+        // ------------------------------------------
+        // 7. Get Capitoll community result
+        // ------------------------------------------
+
+        let community;
+
+
+        try {
+            community = await getRidingVoteResult(
+                pool,
+                normalizedBillCode,
+                riding.name
+            );
+
+        } catch (error) {
+
+            if (error instanceof UserVoteError) {
+
+                community = {
+                    total_responses: 0,
+
+                    results: {
+                        YES: {
+                            count: 0,
+                            percentage: 0
+                        },
+
+                        NO: {
+                            count: 0,
+                            percentage: 0
+                        },
+
+                        ABSTAIN: {
+                            count: 0,
+                            percentage: 0
+                        }
+                    }
+                };
+
+            } else {
+                throw error;
+            }
+        }
+
+
+        // ------------------------------------------
+        // 8. Return combined result
+        // ------------------------------------------
+
+        res.json({
+            success: true,
+
+            bill: {
+                id:
+                    bill.id,
+
+                bill_code:
+                    bill.bill_code,
+
+                number_code:
+                    bill.number_code,
+
+                parliament_number:
+                    bill.parliament_number,
+
+                session_number:
+                    bill.session_number,
+
+                title:
+                    bill.long_title_en,
+
+                title_fr:
+                    bill.long_title_fr,
+
+                status:
+                    bill.status,
+
+                passed_house_third_reading_at:
+                    bill.passed_house_third_reading_at
+            },
+
+
+            riding: {
+                id:
+                    riding.id,
+
+                name:
+                    riding.name
+            },
+
+
+            community,
+
+
+            mp: {
+                person_id:
+                    mp.person_id,
+
+                first_name:
+                    mp.official_first_name,
+
+                last_name:
+                    mp.official_last_name,
+
+                full_name:
+                    [
+                        mp.official_first_name,
+                        mp.official_last_name
+                    ]
+                        .filter(Boolean)
+                        .join(' '),
+
+                party,
+
+                vote_key:
+                    voteKey,
+
+                raw_vote:
+                    rawMpVote,
+
+                vote:
+                    mpVote
+            }
+        });
+
+
+    } catch (error) {
+        console.error(error);
+
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get bill and riding comparison'
         });
     }
 });
@@ -388,19 +756,20 @@ async function syncCurrentData() {
     console.log('Starting Capitoll data sync...');
     console.log('------------------------------------------');
 
+
     // --------------------------------------------------
     // 1. IMPORT / UPDATE BILLS
     // --------------------------------------------------
 
-    const billResult = await importRelevantBills(pool);
+    const billResult =
+        await importRelevantBills(pool);
+
 
     console.log(
         `Bills synced: ${billResult.importedCount}`
     );
 
 
-    // We need the current Parliament/session before
-    // importing constituencies or divisions.
     if (!billResult.currentParlSession) {
         console.log(
             'Could not determine current Parliament/session.'
@@ -414,6 +783,7 @@ async function syncCurrentData() {
         parliamentNumber,
         sessionNumber
     } = billResult.currentParlSession;
+
 
     console.log(
         `Current Parliament/session: ${parliamentNumber}-${sessionNumber}`
@@ -430,6 +800,7 @@ async function syncCurrentData() {
             billResult.currentParlSession
         );
 
+
     console.log(
         `Constituencies synced: ${constituencyCount}`
     );
@@ -439,29 +810,33 @@ async function syncCurrentData() {
     // 3. CREATE DECISION QUEUE
     // --------------------------------------------------
 
-    const queue = new DecisionQueue();
+    const queue =
+        new DecisionQueue();
 
 
     // --------------------------------------------------
-    // 4. FIND LAST DIVISION WE ALREADY SCANNED
+    // 4. FIND LAST DIVISION ALREADY SCANNED
     // --------------------------------------------------
 
-    const stateResult = await pool.query(
-        `
-        SELECT last_decision_division_number
-        FROM capitoll_v2.vote_import_state
-        WHERE parliament_number = $1
-          AND session_number = $2
-        `,
-        [
-            parliamentNumber,
-            sessionNumber
-        ]
-    );
+    const stateResult =
+        await pool.query(
+            `
+            SELECT last_decision_division_number
+            FROM capitoll_v2.vote_import_state
+            WHERE parliament_number = $1
+              AND session_number = $2
+            `,
+            [
+                parliamentNumber,
+                sessionNumber
+            ]
+        );
 
 
     const lastDivisionNumber =
-        stateResult.rows[0]?.last_decision_division_number || 0;
+        stateResult.rows[0]
+            ?.last_decision_division_number || 0;
+
 
     console.log(
         `Last scanned division: ${lastDivisionNumber}`
@@ -500,10 +875,13 @@ async function syncCurrentData() {
 
 app.listen(PORT, () => {
     console.log('');
+
     console.log(
         `Capitoll V2 server running on http://localhost:${PORT}`
     );
+
     console.log('');
+
 
     syncCurrentData().catch(error => {
         console.error('Automatic data sync failed:');
