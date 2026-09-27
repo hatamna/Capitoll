@@ -49,3 +49,5 @@ backend/node_modules/
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+.vscode/launch.json

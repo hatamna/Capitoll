@@ -23,7 +23,7 @@ class PastBillDetailPage extends StatelessWidget {
           ),
         ),
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -115,6 +115,7 @@ class PastBillDetailPage extends StatelessWidget {
                       color: Color(0xFF2E7D32), // use Color(0xFFC62828) for AGAINST
                     ),
                   ),
+                  const SizedBox(height:20)
                 ],
               ),
             ),
