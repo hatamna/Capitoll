@@ -1,4 +1,4 @@
-const BILL_CODE_PATTERN = /^[cs]-\d+ ?\(\d+-\d+\)$/i;
+const BILL_CODE_PATTERN = /^c-[1-9]\d{0,3}\(\d{1,2}-\d\)$/i;
 
 class DecisionQueue {
     constructor(initialDecisions = []) {

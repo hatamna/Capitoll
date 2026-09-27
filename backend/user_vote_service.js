@@ -26,9 +26,44 @@ function getTally(votesByKey, ridingName) {
     };
 }
 
-async function getRidingVoteResult(db, billCode, ridingName) {
+function getOfficialVoteTally(mps, billCode) {
+    const tally = { Y: 0, N: 0, A: 0 };
+
+    for (const mp of mps) {
+        const choice = mp.votes_by_bill?.[billCode];
+        if (Object.hasOwn(tally, choice)) {
+            tally[choice] += 1;
+        }
+    }
+
+    const total = tally.Y + tally.N + tally.A;
+    const result = total === 0
+        ? null
+        : tally.Y > tally.N
+            ? 'Agreed To'
+            : tally.N > tally.Y ? 'Negatived' : 'Tie';
+
+    return { tally, total, result };
+}
+
+async function getBillAndRidingVoteResult(db, ridingName, billCode) {
+    if (typeof billCode !== 'string' || typeof ridingName !== 'string' ||
+        !billCode.trim() || !ridingName.trim()) {
+        throw new UserVoteError(400, 'riding_name and bill_code are required');
+    }
+
+    billCode = billCode.replace(/\s+/g, '').toLowerCase();
+    ridingName = ridingName.trim();
     const billResult = await db.query(`
-        SELECT bill_code, parliament_number, session_number, votes_by_key
+        SELECT
+            bill_code,
+            number_code,
+            parliament_number,
+            session_number,
+            long_title_en,
+            long_title_fr,
+            status,
+            votes_by_key
         FROM capitoll_v2.bills
         WHERE bill_code = $1
     `, [billCode]);
@@ -60,23 +95,59 @@ async function getRidingVoteResult(db, billCode, ridingName) {
     }
 
     const mpResult = await db.query(`
-        SELECT person_id, ridings_by_parliament, votes_by_bill
+        SELECT
+            person_id,
+            official_first_name,
+            official_last_name,
+            ridings_by_parliament,
+            votes_by_bill
         FROM capitoll_v2.mps
         WHERE votes_by_bill ? $1
-          AND ridings_by_parliament ? $2
-    `, [billCode, String(parliamentNumber)]);
+    `, [billCode]);
 
-    const mp = mpResult.rows.find(candidate => {
+    const sessionMps = mpResult.rows.filter(candidate => {
         const sessions = candidate.ridings_by_parliament?.[String(parliamentNumber)];
         return Array.isArray(sessions) && sessions.some(entry =>
+            Number(entry.sessionNumber) === sessionNumber
+        );
+    });
+    const mp = sessionMps.find(candidate => {
+        const sessions = candidate.ridings_by_parliament[String(parliamentNumber)];
+        return sessions.some(entry =>
             Number(entry.sessionNumber) === sessionNumber &&
             entry.ridingName === ridingName
         );
     });
     const mpVote = mp?.votes_by_bill?.[billCode] || null;
     const { tally, total, communityMajority } = getTally(bill.votes_by_key, ridingName);
+    const officialResult = getOfficialVoteTally(mpResult.rows, billCode);
+    const mpName = mp
+        ? [mp.official_first_name, mp.official_last_name].filter(Boolean).join(' ')
+        : null;
 
     return {
+        bill: {
+            bill_code: bill.bill_code,
+            title_en: bill.long_title_en,
+            title_fr: bill.long_title_fr,
+            status: bill.status
+        },
+        riding: {
+            name: ridingName,
+            parliament_number: parliamentNumber,
+            session_number: sessionNumber
+        },
+        user_tally: {
+            counts: tally,
+            total,
+            majority: communityMajority
+        },
+        mp: {
+            person_id: mp ? String(mp.person_id) : null,
+            name: mpName || null,
+            vote: mpVote
+        },
+        all_mps_result: officialResult,
         bill_code: billCode,
         riding_name: ridingName,
         parliament_number: parliamentNumber,
@@ -92,9 +163,33 @@ async function getRidingVoteResult(db, billCode, ridingName) {
     };
 }
 
+async function getRidingVoteResult(db, billCode, ridingName) {
+    return getBillAndRidingVoteResult(db, ridingName, billCode);
+}
+
+async function getRidingVoteHistory(db, ridingName, billCode) {
+    const result = await getBillAndRidingVoteResult(db, ridingName, billCode);
+    const billKey = result.bill.bill_code;
+
+    return {
+        riding_name: result.riding.name,
+        bills: {
+            [billKey]: {
+                mp_vote: {
+                    person_id: result.mp.person_id,
+                    name: result.mp.name,
+                    choice: result.mp.vote
+                },
+                user_tally: result.user_tally,
+                overall_house_vote: result.all_mps_result
+            }
+        }
+    };
+}
+
 async function submitRidingVote(pool, { billCode, ridingName, choice }) {
     const normalizedBillCode = typeof billCode === 'string'
-        ? billCode.trim().toLowerCase()
+        ? billCode.replace(/\s+/g, '').toLowerCase()
         : '';
     const normalizedRidingName = typeof ridingName === 'string'
         ? ridingName.trim()
@@ -150,18 +245,18 @@ async function submitRidingVote(pool, { billCode, ridingName, choice }) {
         `, [normalizedBillCode, normalizedRidingName, normalizedChoice]);
 
         if (updateResult.rows.length === 0) {
-            await getRidingVoteResult(
+            await getBillAndRidingVoteResult(
                 client,
-                normalizedBillCode,
-                normalizedRidingName
+                normalizedRidingName,
+                normalizedBillCode
             );
             throw new UserVoteError(409, 'Riding is not available for this bill session');
         }
 
-        const result = await getRidingVoteResult(
+        const result = await getBillAndRidingVoteResult(
             client,
-            normalizedBillCode,
-            normalizedRidingName
+            normalizedRidingName,
+            normalizedBillCode
         );
         await client.query('COMMIT');
         return result;
@@ -173,4 +268,10 @@ async function submitRidingVote(pool, { billCode, ridingName, choice }) {
     }
 }
 
-module.exports = { UserVoteError, getRidingVoteResult, submitRidingVote };
+module.exports = {
+    UserVoteError,
+    getBillAndRidingVoteResult,
+    getRidingVoteHistory,
+    getRidingVoteResult,
+    submitRidingVote
+};

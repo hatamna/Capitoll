@@ -1,6 +1,13 @@
 const express = require('express');
 const cors = require('cors');
 const pool = require('./db');
+const { MpPhotoError, getMpOfficialPhoto } = require('./mp_photo_service');
+const { getBillsAwaitingThirdReading } = require('./bill_service');
+const {
+    UserVoteError,
+    getBillAndRidingVoteResult,
+    getRidingVoteHistory
+} = require('./user_vote_service');
 
 const app = express();
 const PORT = 3000;
@@ -43,6 +50,67 @@ app.get('/api/bills', async (req, res) => {
         res.status(500).json({
             success: false,
             error: 'Failed to fetch bills'
+        });
+    }
+});
+
+app.get('/api/bills/awaiting-third-reading', async (req, res) => {
+    try {
+        const bills = await getBillsAwaitingThirdReading(pool);
+        res.json(bills);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch bills awaiting third reading'
+        });
+    }
+});
+
+app.get('/api/v2/bill-riding-result', async (req, res) => {
+    try {
+        const result = await getBillAndRidingVoteResult(
+            pool,
+            req.query.riding_name,
+            req.query.bill_code
+        );
+        res.json(result);
+    } catch (error) {
+        if (error instanceof UserVoteError) {
+            return res.status(error.statusCode).json({
+                success: false,
+                error: error.message
+            });
+        }
+
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get bill and riding vote result'
+        });
+    }
+});
+
+app.get('/api/v2/ridings/:ridingName/vote-history', async (req, res) => {
+    try {
+        const result = await getRidingVoteHistory(
+            pool,
+            req.params.ridingName,
+            req.query.bill_code
+        );
+        res.json(result);
+    } catch (error) {
+        if (error instanceof UserVoteError) {
+            return res.status(error.statusCode).json({
+                success: false,
+                error: error.message
+            });
+        }
+
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get riding vote history'
         });
     }
 });
@@ -238,6 +306,26 @@ app.get('/api/ridings/:id', async (req, res) => {
 
         res.status(500).json({
             error: 'Failed to get riding'
+        });
+    }
+});
+
+app.get('/api/ridings/:ridingName/mp-photo', async (req, res) => {
+    try {
+        const result = await getMpOfficialPhoto(pool, req.params.ridingName);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        if (error instanceof MpPhotoError) {
+            return res.status(error.statusCode).json({
+                success: false,
+                error: error.message
+            });
+        }
+
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get MP photo'
         });
     }
 });

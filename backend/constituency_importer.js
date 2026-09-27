@@ -5,6 +5,10 @@ const CONSTITUENCIES_XML_QUERY = `
     SELECT
         (xpath('string(PersonId)', constituency_xml))[1]::text AS person_id,
         (xpath('string(Name)', constituency_xml))[1]::text AS riding_name,
+        (xpath('string(CurrentPersonOfficialFirstName)', constituency_xml))[1]::text
+            AS official_first_name,
+        (xpath('string(CurrentPersonOfficialLastName)', constituency_xml))[1]::text
+            AS official_last_name,
         (xpath('string(CurrentCaucusShortName)', constituency_xml))[1]::text
             AS caucus_short_name
     FROM unnest(
@@ -26,6 +30,8 @@ function mapConstituencies(rows) {
         recordsByPerson.set(personId, {
             personId,
             ridingName,
+            officialFirstName: row.official_first_name?.trim() || '',
+            officialLastName: row.official_last_name?.trim() || '',
             caucusShortName: row.caucus_short_name?.trim() || ''
         });
     }
@@ -49,7 +55,7 @@ function withSessionValue(historyByParliament, parliamentNumber, sessionNumber, 
     return updatedHistory;
 }
 
-function makeUpsertValues(records, columnsPerRow, buildRow) {
+function makeUpsertValues(records, columnsPerRow, buildRow, jsonColumns) {
     const values = [];
     const tuples = records.map((record, rowIndex) => {
         const rowValues = buildRow(record);
@@ -57,7 +63,9 @@ function makeUpsertValues(records, columnsPerRow, buildRow) {
         values.push(...rowValues);
         return `(${rowValues.map((_, columnIndex) => {
             const parameter = `$${firstParameter + columnIndex + 1}`;
-            return columnIndex === 0 ? parameter : `${parameter}::jsonb`;
+            return jsonColumns.includes(columnIndex)
+                ? `${parameter}::jsonb`
+                : parameter;
         }).join(', ')})`;
     });
 
@@ -111,7 +119,12 @@ async function importCurrentConstituencies(pool, parlSession, fetchImpl = fetch)
                 WHERE name = ANY($1::text[])
             `, [ridingNames]),
             client.query(`
-                SELECT person_id, ridings_by_parliament, parties_by_parliament
+                SELECT
+                    person_id,
+                    official_first_name,
+                    official_last_name,
+                    ridings_by_parliament,
+                    parties_by_parliament
                 FROM capitoll_v2.mps
                 WHERE person_id = ANY($1::bigint[])
             `, [personIds])
@@ -128,6 +141,8 @@ async function importCurrentConstituencies(pool, parlSession, fetchImpl = fetch)
             const existing = mpHistories.get(record.personId);
             return {
                 personId: record.personId,
+                officialFirstName: record.officialFirstName,
+                officialLastName: record.officialLastName,
                 ridingsByParliament: withSessionValue(
                     existing?.ridings_by_parliament,
                     parlSession.parliamentNumber,
@@ -160,16 +175,30 @@ async function importCurrentConstituencies(pool, parlSession, fetchImpl = fetch)
         }
         const ridingRecords = [...ridingRecordsByName.values()];
 
-        const mpValues = makeUpsertValues(mpRecords, 3, record => [
+        const mpValues = makeUpsertValues(mpRecords, 5, record => [
             record.personId,
+            record.officialFirstName,
+            record.officialLastName,
             JSON.stringify(record.ridingsByParliament),
             JSON.stringify(record.partiesByParliament)
-        ]);
+        ], [3, 4]);
         await client.query(`
-            INSERT INTO capitoll_v2.mps (
-                person_id, ridings_by_parliament, parties_by_parliament
+            INSERT INTO capitoll_v2.mps AS stored (
+                person_id,
+                official_first_name,
+                official_last_name,
+                ridings_by_parliament,
+                parties_by_parliament
             ) VALUES ${mpValues.tuples}
             ON CONFLICT (person_id) DO UPDATE SET
+                official_first_name = COALESCE(
+                    NULLIF(EXCLUDED.official_first_name, ''),
+                    stored.official_first_name
+                ),
+                official_last_name = COALESCE(
+                    NULLIF(EXCLUDED.official_last_name, ''),
+                    stored.official_last_name
+                ),
                 ridings_by_parliament = EXCLUDED.ridings_by_parliament,
                 parties_by_parliament = EXCLUDED.parties_by_parliament
         `, mpValues.values);
@@ -177,7 +206,7 @@ async function importCurrentConstituencies(pool, parlSession, fetchImpl = fetch)
         const ridingValues = makeUpsertValues(ridingRecords, 2, record => [
             record.ridingName,
             JSON.stringify(record.mpsByParliament)
-        ]);
+        ], [1]);
         await client.query(`
             INSERT INTO capitoll_v2.ridings (name, mps_by_parliament)
             VALUES ${ridingValues.tuples}

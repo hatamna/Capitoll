@@ -88,13 +88,16 @@ function mapRelevantBills(rows) {
         const numberCode = row.number_code?.trim();
 
         if (!row.id || !Number.isInteger(parliamentNumber) ||
-            !Number.isInteger(sessionNumber) || !/^C-\d+$/i.test(numberCode || '')) {
+            !Number.isInteger(sessionNumber) || !/^C-[1-9]\d{0,3}$/i.test(numberCode || '') ||
+            parliamentNumber < 40 ||
+            !/^\d{1,2}$/.test(String(parliamentNumber)) ||
+            !/^\d$/.test(String(sessionNumber))) {
             continue;
         }
 
         uniqueBills.set(row.id, {
             id: row.id,
-            billCode: `${numberCode.toLowerCase()} (${parliamentNumber}-${sessionNumber})`,
+            billCode: `${numberCode.toLowerCase()}(${parliamentNumber}-${sessionNumber})`,
             numberCode,
             parliamentNumber,
             sessionNumber,
@@ -116,7 +119,8 @@ function findCurrentParlSession(rows) {
             sessionNumber: Number(row.session_number)
         }))
         .filter(session => Number.isInteger(session.parliamentNumber) &&
-            Number.isInteger(session.sessionNumber));
+            Number.isInteger(session.sessionNumber) &&
+            session.parliamentNumber >= 40);
 
     sessions.sort((left, right) =>
         right.parliamentNumber - left.parliamentNumber ||

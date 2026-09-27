@@ -47,6 +47,10 @@ function getLatestDivisionNumber(votes, parliamentNumber, sessionNumber) {
 }
 
 function enqueueThirdReadingVotes(votes, queue, parliamentNumber, sessionNumber, minimumDivisionNumber = 0) {
+    if (parliamentNumber < 40) {
+        return 0;
+    }
+
     const imported = new Set();
 
     for (const vote of votes) {
@@ -64,12 +68,12 @@ function enqueueThirdReadingVotes(votes, queue, parliamentNumber, sessionNumber,
             voteSessionNumber !== sessionNumber ||
             decisionDivisionNumber <= minimumDivisionNumber ||
             !Number.isInteger(decisionDivisionNumber) ||
-            !/^[CS]-\d+$/i.test(billNumberCode || '')) {
+                !/^C-[1-9]\d{0,3}$/i.test(billNumberCode || '')) {
             continue;
         }
 
         const billCode =
-            `${billNumberCode.toLowerCase()} (${voteParliamentNumber}-${voteSessionNumber})`;
+            `${billNumberCode.toLowerCase()}(${voteParliamentNumber}-${voteSessionNumber})`;
         const key = `${voteParliamentNumber}-${voteSessionNumber}-${decisionDivisionNumber}-${billCode}`;
 
         if (imported.has(key)) {
@@ -92,6 +96,7 @@ async function importThirdReadingDivisions(pool, queue, fetchImpl = fetch) {
     const { rows: sessions } = await pool.query(`
         SELECT DISTINCT parliament_number, session_number
         FROM capitoll_v2.bills
+        WHERE parliament_number >= 40
         ORDER BY parliament_number, session_number
     `);
 
@@ -101,6 +106,11 @@ async function importThirdReadingDivisions(pool, queue, fetchImpl = fetch) {
     for (const session of sessions) {
         const parliamentNumber = Number(session.parliament_number);
         const sessionNumber = Number(session.session_number);
+        if (!Number.isInteger(parliamentNumber) || parliamentNumber < 40 ||
+            !Number.isInteger(sessionNumber)) {
+            continue;
+        }
+
         const votes = await fetchSessionVotes(
             pool,
             parliamentNumber,
@@ -131,6 +141,14 @@ async function importNewThirdReadingDivisions(
     lastDivisionNumber,
     fetchImpl = fetch
 ) {
+    if (parliamentNumber < 40) {
+        return {
+            newVotesFound: false,
+            latestDivisionNumber: lastDivisionNumber,
+            queuedCount: 0
+        };
+    }
+
     const votes = await fetchSessionVotes(
         pool,
         parliamentNumber,
