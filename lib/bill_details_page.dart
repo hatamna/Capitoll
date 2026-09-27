@@ -1,12 +1,13 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'groq_service.dart';
 
 class BillDetailPage extends StatefulWidget {
-  final String billNum;
+  final String billNum; // Keep this here
 
   const BillDetailPage({
-    super.key, 
-    required this.billNum, 
+    super.key,
+    required this.billNum,
   });
 
   @override
@@ -14,18 +15,25 @@ class BillDetailPage extends StatefulWidget {
 }
 
 class _BillDetailPageState extends State<BillDetailPage> {
+  late Future<String> _summaryFuture;
   bool _hasWeighedIn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _summaryFuture = GroqService.fetchBillSummary(widget.billNum, 'Bill Details');
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
+      backgroundColor: Color(0xFFF8F9FA),
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.black87),
-        title: const Text(
+        iconTheme: IconThemeData(color: Colors.black87),
+        title: Text(
           'Bill Details',
           style: TextStyle(
             color: Colors.black87,
@@ -35,12 +43,12 @@ class _BillDetailPageState extends State<BillDetailPage> {
         ),
       ),
       body: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 10),
-            const Text(
+            SizedBox(height: 10),
+            Text(
               'BILL',
               style: TextStyle(
                 fontSize: 14,
@@ -49,7 +57,7 @@ class _BillDetailPageState extends State<BillDetailPage> {
               ),
             ),
             Transform.translate(
-              offset: const Offset(0, -8),
+              offset: Offset(0, -8),
               child: Text(
                 widget.billNum,
                 style: TextStyle(
@@ -58,10 +66,10 @@ class _BillDetailPageState extends State<BillDetailPage> {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(20.0),
+              padding: EdgeInsets.all(20.0),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
@@ -70,18 +78,50 @@ class _BillDetailPageState extends State<BillDetailPage> {
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.05),
                     blurRadius: 12,
-                    offset: const Offset(0, 4),
+                    offset: Offset(0, 4),
                   ),
                 ],
               ),
-              child: const Text(
-                'An Act to amend certain acts in relation to public infrastructure, resource management, and community funding allocations, and to provide for related administrative measures.',
-                style: TextStyle(
-                  fontSize: 15,
-                  height: 1.4,
-                  color: Colors.black87,
-                ),
-              ),
+              child: FutureBuilder<String>(
+                future: _summaryFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 32.0),
+                        child: Column(
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 12),
+                            Text('Generating detailed summary...', style: TextStyle(color: Colors.black, fontSize: 16.0, height: 1.5)),
+                          ],
+                        ),
+                      ),
+                    );
+                  } else if (snapshot.hasError) {
+                    return Container(
+                      padding: EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'Failed to load summary: ${snapshot.error}',
+                        style: TextStyle(color: Colors.black, fontSize: 16.0, height: 1.5)
+                      ),
+                    );
+                  } else if (snapshot.hasData) {
+                    return Text(
+                      snapshot.data!,
+                      style: TextStyle(
+                        fontSize: 16.0,
+                        height: 1.5,
+                      ),
+                    );
+                  }
+                  return Text('No summary available.', style: TextStyle(color: Colors.black, fontSize: 16.0, height: 1.5));
+                },
+              )
             ),
           ],
         ),
