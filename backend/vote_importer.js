@@ -59,7 +59,14 @@ function getLatestDivisionNumber(votes, parliamentNumber, sessionNumber) {
     }, 0);
 }
 
-function enqueueThirdReadingVotes(votes, queue, parliamentNumber, sessionNumber, minimumDivisionNumber = 0) {
+function enqueueBillVotes(
+    votes,
+    queue,
+    parliamentNumber,
+    sessionNumber,
+    minimumDivisionNumber = 0,
+    eligibleBillNumberCodes = null
+) {
     if (parliamentNumber < 40) {
         return 0;
     }
@@ -67,11 +74,6 @@ function enqueueThirdReadingVotes(votes, queue, parliamentNumber, sessionNumber,
     const imported = new Set();
 
     for (const vote of votes) {
-        const subject = vote.decision_division_subject?.trim();
-        if (!subject || !subject.toLowerCase().startsWith('3rd reading')) {
-            continue;
-        }
-
         const voteParliamentNumber = Number(vote.parliament_number);
         const voteSessionNumber = Number(vote.session_number);
         const decisionDivisionNumber = Number(vote.decision_division_number);
@@ -81,7 +83,9 @@ function enqueueThirdReadingVotes(votes, queue, parliamentNumber, sessionNumber,
             voteSessionNumber !== sessionNumber ||
             decisionDivisionNumber <= minimumDivisionNumber ||
             !Number.isInteger(decisionDivisionNumber) ||
-                !/^C-[1-9]\d{0,3}$/i.test(billNumberCode || '')) {
+            !/^C-[1-9]\d{0,3}$/i.test(billNumberCode || '') ||
+            (eligibleBillNumberCodes &&
+                !eligibleBillNumberCodes.has(billNumberCode.toLowerCase()))) {
             continue;
         }
 
@@ -105,11 +109,16 @@ function enqueueThirdReadingVotes(votes, queue, parliamentNumber, sessionNumber,
     return imported.size;
 }
 
-async function importThirdReadingDivisions(pool, queue, fetchImpl = fetch) {
+async function importBillVoteDivisions(pool, queue, fetchImpl = fetch) {
     const { rows: sessions } = await pool.query(`
-        SELECT DISTINCT parliament_number, session_number
+        SELECT
+            parliament_number,
+            session_number,
+            ARRAY_AGG(DISTINCT LOWER(number_code)) AS bill_number_codes
         FROM capitoll_v2.bills
         WHERE parliament_number >= 40
+          AND session_number >= 1
+        GROUP BY parliament_number, session_number
         ORDER BY parliament_number, session_number
     `);
 
@@ -120,7 +129,7 @@ async function importThirdReadingDivisions(pool, queue, fetchImpl = fetch) {
         const parliamentNumber = Number(session.parliament_number);
         const sessionNumber = Number(session.session_number);
         if (!Number.isInteger(parliamentNumber) || parliamentNumber < 40 ||
-            !Number.isInteger(sessionNumber)) {
+            !Number.isInteger(sessionNumber) || sessionNumber < 1) {
             continue;
         }
 
@@ -132,11 +141,13 @@ async function importThirdReadingDivisions(pool, queue, fetchImpl = fetch) {
         );
         latestDivisionNumbers[`${parliamentNumber}-${sessionNumber}`] =
             getLatestDivisionNumber(votes, parliamentNumber, sessionNumber);
-        queuedCount += enqueueThirdReadingVotes(
+        queuedCount += enqueueBillVotes(
             votes,
             queue,
             parliamentNumber,
-            sessionNumber
+            sessionNumber,
+            0,
+            new Set(session.bill_number_codes)
         );
     }
 
@@ -146,7 +157,7 @@ async function importThirdReadingDivisions(pool, queue, fetchImpl = fetch) {
     };
 }
 
-async function importNewThirdReadingDivisions(
+async function importNewBillVoteDivisions(
     pool,
     queue,
     parliamentNumber,
@@ -154,7 +165,7 @@ async function importNewThirdReadingDivisions(
     lastDivisionNumber,
     fetchImpl = fetch
 ) {
-    if (parliamentNumber < 40) {
+    if (parliamentNumber < 40 || sessionNumber < 1) {
         return {
             newVotesFound: false,
             latestDivisionNumber: lastDivisionNumber,
@@ -168,6 +179,12 @@ async function importNewThirdReadingDivisions(
         sessionNumber,
         fetchImpl
     );
+        const { rows: billRows } = await pool.query(`
+            SELECT DISTINCT LOWER(number_code) AS number_code
+            FROM capitoll_v2.bills
+            WHERE parliament_number = $1
+              AND session_number = $2
+        `, [parliamentNumber, sessionNumber]);
     const latestDivisionNumber = getLatestDivisionNumber(
         votes,
         parliamentNumber,
@@ -178,18 +195,20 @@ async function importNewThirdReadingDivisions(
         return { newVotesFound: false, latestDivisionNumber, queuedCount: 0 };
     }
 
-    const queuedCount = enqueueThirdReadingVotes(
+    const queuedCount = enqueueBillVotes(
         votes,
         queue,
         parliamentNumber,
         sessionNumber,
-        lastDivisionNumber
+        lastDivisionNumber,
+        new Set(billRows.map(row => row.number_code))
     );
 
     return { newVotesFound: true, latestDivisionNumber, queuedCount };
 }
 
 module.exports = {
-    importThirdReadingDivisions,
-    importNewThirdReadingDivisions
+    enqueueBillVotes,
+    importBillVoteDivisions,
+    importNewBillVoteDivisions
 };

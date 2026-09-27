@@ -1,6 +1,6 @@
 const pool = require('./db');
 const { DecisionQueue } = require('./decision_queue');
-const { importThirdReadingDivisions } = require('./vote_importer');
+const { importBillVoteDivisions } = require('./vote_importer');
 
 async function main() {
     try {
@@ -8,7 +8,7 @@ async function main() {
 
         const queue = new DecisionQueue();
 
-        const result = await importThirdReadingDivisions(
+        const result = await importBillVoteDivisions(
             pool,
             queue
         );

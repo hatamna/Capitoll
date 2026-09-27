@@ -86,12 +86,13 @@ const INSERT_COLUMNS = [
     'long_title_fr',
     'status',
     'passed_house_third_reading_at',
-    'did_reinstate_from_previous_session'
+    'did_reinstate_from_previous_session',
+    'has_been_voted_on'
 ];
 
 
 const UPSERT_SQL = `
-    INSERT INTO capitoll_v2.bills (${INSERT_COLUMNS.join(', ')})
+    INSERT INTO capitoll_v2.bills AS stored (${INSERT_COLUMNS.join(', ')})
     VALUES
 `;
 
@@ -102,29 +103,26 @@ function parseBoolean(value) {
     );
 }
 
-
 function normalize(value) {
     return value?.trim().toLowerCase() || '';
 }
-
 
 function isThirdReading(value) {
     return normalize(value).includes('third reading');
 }
 
-
-function isAwaitingHouseThirdReading(row) {
-    const status = normalize(
-        row.status_en || row.status
+function hasPassedHouseThirdReading(row, passedAt) {
+    return Boolean(passedAt && !passedAt.startsWith('0001-01-01')) || (
+        isThirdReading(row.latest_completed_major_stage_name_en) &&
+        normalize(row.latest_completed_major_stage_with_chamber)
+            .includes('house of commons')
     );
+}
 
-    const ongoingStage = normalize(
-        row.ongoing_stage_name_en
-    );
-
-    const ongoingChamber = normalize(
-        row.ongoing_stage_chamber_name_en
-    );
+function isAtHouseThirdReading(row) {
+    const status = normalize(row.status_en || row.status);
+    const ongoingStage = normalize(row.ongoing_stage_name_en);
+    const ongoingChamber = normalize(row.ongoing_stage_chamber_name_en);
 
     return (
         isThirdReading(ongoingStage) &&
@@ -133,9 +131,9 @@ function isAwaitingHouseThirdReading(row) {
             status.includes('house of commons')
         )
     ) || (
-            status.includes('third reading') &&
-            status.includes('house of commons')
-        );
+        status.includes('third reading') &&
+        status.includes('house of commons')
+    );
 }
 
 
@@ -147,27 +145,11 @@ function mapRelevantBills(rows) {
             row.passed_house_third_reading_at?.trim();
 
         const hasPassedThirdReading =
-            Boolean(
-                passedAt &&
-                !passedAt.startsWith('0001-01-01')
-            ) ||
-            (
-                isThirdReading(
-                    row.latest_completed_major_stage_name_en
-                ) &&
-                normalize(
-                    row.latest_completed_major_stage_with_chamber
-                ).includes('house of commons')
-            );
+            hasPassedHouseThirdReading(row, passedAt);
 
-        const awaitingThirdReading =
-            isAwaitingHouseThirdReading(row);
-
-
-        if (!hasPassedThirdReading && !awaitingThirdReading) {
+        if (!hasPassedThirdReading && !isAtHouseThirdReading(row)) {
             continue;
         }
-
 
         const parliamentNumber =
             Number(row.parliament_number);
@@ -195,7 +177,7 @@ function mapRelevantBills(rows) {
             id: row.id,
 
             billCode:
-                `${numberCode.toLowerCase()} (${parliamentNumber}-${sessionNumber})`,
+                `${numberCode.toLowerCase()}(${parliamentNumber}-${sessionNumber})`,
 
             numberCode,
 
@@ -219,6 +201,8 @@ function mapRelevantBills(rows) {
                     !passedAt.startsWith('0001-01-01')
                     ? passedAt
                     : null,
+
+            hasBeenVotedOn: hasPassedThirdReading,
 
             didReinstate:
                 parseBoolean(
@@ -264,10 +248,7 @@ function findCurrentParlSession(rows) {
 
 function makeUpsertQuery(bills) {
     const values = [];
-
-
     const rows = bills.map((bill, rowIndex) => {
-
         const rowValues = [
             bill.id,
             bill.billCode,
@@ -278,62 +259,29 @@ function makeUpsertQuery(bills) {
             bill.longTitleFr,
             bill.status,
             bill.passedAt,
-            bill.didReinstate
+            bill.didReinstate,
+            bill.hasBeenVotedOn
         ];
-
-
-        const firstParameter =
-            rowIndex * INSERT_COLUMNS.length;
-
-
+        const firstParameter = rowIndex * INSERT_COLUMNS.length;
         values.push(...rowValues);
-
-
-        return `(${rowValues
-                .map(
-                    (_, index) =>
-                        `$${firstParameter + index + 1}`
-                )
-                .join(', ')
-            })`;
+        return `(${rowValues.map((_, index) => `$${firstParameter + index + 1}`).join(', ')})`;
     });
-
 
     return {
         text: `
-            ${UPSERT_SQL}
-            ${rows.join(', ')}
-
-            ON CONFLICT (id)
-            DO UPDATE SET
-                bill_code =
-                    EXCLUDED.bill_code,
-
-                number_code =
-                    EXCLUDED.number_code,
-
-                parliament_number =
-                    EXCLUDED.parliament_number,
-
-                session_number =
-                    EXCLUDED.session_number,
-
-                long_title_en =
-                    EXCLUDED.long_title_en,
-
-                long_title_fr =
-                    EXCLUDED.long_title_fr,
-
-                status =
-                    EXCLUDED.status,
-
-                passed_house_third_reading_at =
-                    EXCLUDED.passed_house_third_reading_at,
-
-                did_reinstate_from_previous_session =
-                    EXCLUDED.did_reinstate_from_previous_session
+            ${UPSERT_SQL}${rows.join(', ')}
+            ON CONFLICT (id) DO UPDATE SET
+                bill_code = EXCLUDED.bill_code,
+                number_code = EXCLUDED.number_code,
+                parliament_number = EXCLUDED.parliament_number,
+                session_number = EXCLUDED.session_number,
+                long_title_en = EXCLUDED.long_title_en,
+                long_title_fr = EXCLUDED.long_title_fr,
+                status = EXCLUDED.status,
+                passed_house_third_reading_at = EXCLUDED.passed_house_third_reading_at,
+                did_reinstate_from_previous_session = EXCLUDED.did_reinstate_from_previous_session,
+                has_been_voted_on = EXCLUDED.has_been_voted_on
         `,
-
         values
     };
 }
@@ -406,7 +354,6 @@ async function importRelevantBills(
     const bills =
         mapRelevantBills(allRows);
 
-
     if (bills.length === 0) {
         return {
             importedCount: 0,
@@ -446,13 +393,17 @@ async function importRelevantBills(
             );
         }
 
+        await client.query(`
+            DELETE FROM capitoll_v2.bills
+            WHERE NOT (id = ANY($1::bigint[]))
+        `, [bills.map(bill => bill.id)]);
+
 
         await client.query('COMMIT');
 
     } catch (error) {
 
         await client.query('ROLLBACK');
-
         throw error;
 
     } finally {

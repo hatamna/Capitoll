@@ -1,16 +1,22 @@
 const express = require('express');
 const cors = require('cors');
 const pool = require('./db');
+const { INITIAL_IMPORT_NAME, loadInitialData } = require('./initial_import');
 
 const { importRelevantBills } = require('./bill_importer');
 const { importCurrentConstituencies } = require('./constituency_importer');
 const { DecisionQueue } = require('./decision_queue');
-const { importNewThirdReadingDivisions } = require('./vote_importer');
+const { importNewBillVoteDivisions } = require('./vote_importer');
+const {
+    importVoteParticipants,
+    initializeBillRidingVoteEntries
+} = require('./vote_participant_importer');
 
 const { getBillsAwaitingThirdReading } = require('./bill_service');
 
 const {
     UserVoteError,
+    getRidingComplianceScore,
     getRidingVoteResult,
     submitRidingVote
 } = require('./user_vote_service');
@@ -69,8 +75,8 @@ app.get('/test-db', async (req, res) => {
 // Get all bills
 app.get('/api/v2/bills', async (req, res) => {
     try {
-        const result = await pool.query(
-            'SELECT * FROM bills ORDER BY id'
+        const { rows } = await pool.query(
+            'SELECT * FROM capitoll_v2.bills ORDER BY id'
         );
 
         res.json(rows);
@@ -278,7 +284,10 @@ app.get('/api/v2/bill-riding-result', async (req, res) => {
                 long_title_en,
                 long_title_fr,
                 status,
-                passed_house_third_reading_at
+                passed_house_third_reading_at,
+                has_been_voted_on,
+                mp_votes_by_riding,
+                votes_by_key
             FROM capitoll_v2.bills
             WHERE LOWER(number_code) = LOWER($1)
             OR LOWER(bill_code) = LOWER($1)
@@ -336,31 +345,13 @@ app.get('/api/v2/bill-riding-result', async (req, res) => {
         //    during this bill's Parliament/session
         // ------------------------------------------
 
-        const parliamentKey =
-            String(bill.parliament_number);
+        const sessionKey =
+            `${bill.parliament_number}-${bill.session_number}`;
 
+        const mpPersonId =
+            riding.mps_by_parliament?.[sessionKey];
 
-        const mpHistory =
-            riding.mps_by_parliament?.[parliamentKey];
-
-
-        if (!Array.isArray(mpHistory)) {
-            return res.status(404).json({
-                success: false,
-                error: 'No MP history found for this riding and Parliament'
-            });
-        }
-
-
-        const sessionMp =
-            mpHistory.find(
-                entry =>
-                    Number(entry.sessionNumber) ===
-                    Number(bill.session_number)
-            );
-
-
-        if (!sessionMp?.personId) {
+        if (!mpPersonId) {
             return res.status(404).json({
                 success: false,
                 error: 'No MP found for this riding during this bill session'
@@ -384,7 +375,7 @@ app.get('/api/v2/bill-riding-result', async (req, res) => {
             FROM capitoll_v2.mps
             WHERE person_id = $1
             `,
-            [sessionMp.personId]
+            [mpPersonId]
         );
 
 
@@ -532,7 +523,20 @@ app.get('/api/v2/bill-riding-result', async (req, res) => {
                     bill.status,
 
                 passed_house_third_reading_at:
-                    bill.passed_house_third_reading_at
+                    bill.passed_house_third_reading_at,
+
+                has_been_voted_on:
+                    bill.has_been_voted_on,
+
+                mp_votes_by_riding:
+                    bill.mp_votes_by_riding,
+
+                user_vote_tally:
+                    bill.votes_by_key?.[riding.name] || {
+                        Y: 0,
+                        N: 0,
+                        A: 0
+                    }
             },
 
 
@@ -684,6 +688,7 @@ app.get('/api/v2/mps', async (req, res) => {
         } = sessionResult.rows[0];
 
         const parliamentKey = String(parliament_number);
+        const sessionKey = `${parliament_number}-${session_number}`;
 
         const { rows } = await pool.query(
             `
@@ -700,18 +705,7 @@ app.get('/api/v2/mps', async (req, res) => {
                     m.official_last_name
                 ) AS name,
 
-                (
-                    SELECT entry->>'ridingName'
-                    FROM jsonb_array_elements(
-                        COALESCE(
-                            m.ridings_by_parliament -> ($1::text),
-                            '[]'::jsonb
-                        )
-                    ) AS entry
-                    WHERE
-                        (entry->>'sessionNumber')::int = $2
-                    LIMIT 1
-                ) AS riding_name,
+                m.ridings_by_parliament ->> ($1::text) AS riding_name,
 
                 (
                     SELECT entry->>'caucusShortName'
@@ -722,29 +716,20 @@ app.get('/api/v2/mps', async (req, res) => {
                         )
                     ) AS entry
                     WHERE
-                        (entry->>'sessionNumber')::int = $2
+                        (entry->>'sessionNumber')::int = $3
                     LIMIT 1
                 ) AS party
 
             FROM capitoll_v2.mps AS m
 
-            WHERE EXISTS (
-                SELECT 1
-                FROM jsonb_array_elements(
-                    COALESCE(
-                        m.ridings_by_parliament -> ($1::text),
-                        '[]'::jsonb
-                    )
-                ) AS entry
-                WHERE
-                    (entry->>'sessionNumber')::int = $2
-            )
+            WHERE m.ridings_by_parliament ? ($1::text)
 
             ORDER BY
                 m.official_last_name,
                 m.official_first_name
             `,
             [
+                sessionKey,
                 parliamentKey,
                 session_number
             ]
@@ -897,6 +882,12 @@ async function syncCurrentData() {
             billResult.currentParlSession
         );
 
+    await initializeBillRidingVoteEntries(
+        pool,
+        parliamentNumber,
+        sessionNumber
+    );
+
 
     console.log(
         `Constituencies synced: ${constituencyCount}`
@@ -941,11 +932,11 @@ async function syncCurrentData() {
 
 
     // --------------------------------------------------
-    // 5. FIND NEW THIRD-READING DIVISIONS
+    // 5. FIND NEW BILL DIVISIONS
     // --------------------------------------------------
 
     const voteScan =
-        await importNewThirdReadingDivisions(
+        await importNewBillVoteDivisions(
             pool,
             queue,
             parliamentNumber,
@@ -955,7 +946,37 @@ async function syncCurrentData() {
 
 
     console.log(
-        `New third-reading decisions queued: ${voteScan.queuedCount}`
+        `New bill vote divisions queued: ${voteScan.queuedCount}`
+    );
+
+
+    let voteParticipantCount = 0;
+    await queue.drain(async decision => {
+        voteParticipantCount += await importVoteParticipants(pool, decision);
+    });
+
+    console.log(
+        `Vote participants synced: ${voteParticipantCount}`
+    );
+
+
+    await pool.query(
+        `
+        INSERT INTO capitoll_v2.vote_import_state (
+            parliament_number,
+            session_number,
+            last_decision_division_number
+        )
+        VALUES ($1, $2, $3)
+        ON CONFLICT (parliament_number, session_number) DO UPDATE SET
+            last_decision_division_number = EXCLUDED.last_decision_division_number,
+            updated_at = NOW()
+        `,
+        [
+            parliamentNumber,
+            sessionNumber,
+            voteScan.latestDivisionNumber
+        ]
     );
 
 
@@ -980,8 +1001,47 @@ app.listen(PORT, () => {
     console.log('');
 
 
-    syncCurrentData().catch(error => {
+    const runDataSync = async () => {
+        const { rows } = await pool.query(`
+            SELECT 1
+            FROM capitoll_v2.initial_import_state
+            WHERE import_name = $1
+        `, [INITIAL_IMPORT_NAME]);
+
+        if (rows.length === 0) {
+            const summary = await loadInitialData();
+            console.log('Initial database population complete:', summary);
+            return;
+        }
+
+        await syncCurrentData();
+    };
+
+    runDataSync().catch(error => {
         console.error('Automatic data sync failed:');
         console.error(error);
     });
+});
+
+app.get('/api/v2/ridings/:ridingName/compliance-score', async (req, res) => {
+    try {
+        const result = await getRidingComplianceScore(
+            pool,
+            req.params.ridingName
+        );
+        res.json(result);
+    } catch (error) {
+        if (error instanceof UserVoteError) {
+            return res.status(error.statusCode).json({
+                success: false,
+                error: error.message
+            });
+        }
+
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to calculate riding compliance score'
+        });
+    }
 });

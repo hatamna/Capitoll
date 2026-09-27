@@ -1,20 +1,20 @@
 const pool = require('./db');
 const { DecisionQueue } = require('./decision_queue');
-const { importThirdReadingDivisions } = require('./vote_importer');
+const { importBillVoteDivisions } = require('./vote_importer');
 const { importVoteParticipants } = require('./vote_participant_importer');
 
 async function main() {
     try {
-        console.log('Finding third-reading votes...');
+        console.log('Finding bill-related recorded votes...');
 
         const queue = new DecisionQueue();
 
-        const scanResult = await importThirdReadingDivisions(
+        const scanResult = await importBillVoteDivisions(
             pool,
             queue
         );
 
-        console.log(`Found ${queue.pending.length} third-reading decisions.`);
+        console.log(`Found ${queue.pending.length} bill vote divisions.`);
 
         if (queue.pending.length === 0) {
             console.log('Nothing to import.');

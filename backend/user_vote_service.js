@@ -26,6 +26,96 @@ function getTally(votesByKey, ridingName) {
     };
 }
 
+async function getRidingComplianceScore(db, ridingName) {
+    if (typeof ridingName !== 'string' || !ridingName.trim()) {
+        throw new UserVoteError(400, 'riding_name is required');
+    }
+
+    const ridingResult = await db.query(`
+        SELECT name
+        FROM capitoll_v2.ridings
+        WHERE LOWER(name) = LOWER($1)
+        LIMIT 1
+    `, [ridingName.trim()]);
+
+    if (ridingResult.rows.length === 0) {
+        throw new UserVoteError(404, 'Riding not found');
+    }
+
+    const canonicalRidingName = ridingResult.rows[0].name;
+    const billsResult = await db.query(`
+        SELECT
+            bill_code,
+            mp_votes_by_riding,
+            votes_by_key
+        FROM capitoll_v2.bills
+        WHERE has_been_voted_on = TRUE
+          AND mp_votes_by_riding ? $1
+          AND votes_by_key ? $1
+    `, [canonicalRidingName]);
+
+    let comparedBills = 0;
+    let alignedBills = 0;
+
+    for (const bill of billsResult.rows) {
+        const ridingTally = bill.votes_by_key?.[canonicalRidingName] || {};
+        const counts = {
+            Y: Number(ridingTally.Y) || 0,
+            N: Number(ridingTally.N) || 0,
+            A: Number(ridingTally.A) || 0
+        };
+        const totalResponses = counts.Y + counts.N + counts.A;
+
+        if (totalResponses === 0) {
+            continue;
+        }
+
+        const highestCount = Math.max(counts.Y, counts.N, counts.A);
+        const communityChoices = Object.keys(counts).filter(
+            choice => counts[choice] === highestCount
+        );
+
+        if (communityChoices.length !== 1) {
+            continue;
+        }
+
+        const mpVotes = bill.mp_votes_by_riding?.[canonicalRidingName];
+        if (!Array.isArray(mpVotes)) {
+            continue;
+        }
+
+        const latestMpVote = mpVotes.reduce((latest, vote) => {
+            const divisionNumber = Number(vote.decision_division_number);
+            if (!['Y', 'N', 'A'].includes(vote.choice) ||
+                !Number.isInteger(divisionNumber)) {
+                return latest;
+            }
+
+            return !latest || divisionNumber > latest.divisionNumber
+                ? { choice: vote.choice, divisionNumber }
+                : latest;
+        }, null);
+
+        if (!latestMpVote) {
+            continue;
+        }
+
+        comparedBills += 1;
+        if (communityChoices[0] === latestMpVote.choice) {
+            alignedBills += 1;
+        }
+    }
+
+    return {
+        riding_name: canonicalRidingName,
+        compliance_score: comparedBills === 0
+            ? 0
+            : Math.round((alignedBills / comparedBills) * 100),
+        aligned_bills: alignedBills,
+        compared_bills: comparedBills
+    };
+}
+
 function getOfficialVoteTally(mps, billCode) {
     const tally = { Y: 0, N: 0, A: 0 };
 
@@ -63,6 +153,8 @@ async function getBillAndRidingVoteResult(db, ridingName, billCode) {
             long_title_en,
             long_title_fr,
             status,
+            has_been_voted_on,
+            mp_votes_by_riding,
             votes_by_key
         FROM capitoll_v2.bills
         WHERE bill_code = $1
@@ -85,12 +177,11 @@ async function getBillAndRidingVoteResult(db, ridingName, billCode) {
 
     const parliamentNumber = Number(bill.parliament_number);
     const sessionNumber = Number(bill.session_number);
-    const ridingHistory = ridingResult.rows[0].mps_by_parliament?.[String(parliamentNumber)];
-    const isRidingInSession = Array.isArray(ridingHistory) && ridingHistory.some(entry =>
-        Number(entry.sessionNumber) === sessionNumber
-    );
+    const sessionKey = `${parliamentNumber}-${sessionNumber}`;
+    const ridingHistory = ridingResult.rows[0].mps_by_parliament;
+    const mpPersonId = ridingHistory?.[sessionKey];
 
-    if (!isRidingInSession) {
+    if (!mpPersonId) {
         throw new UserVoteError(409, 'Riding is not available for this bill session');
     }
 
@@ -102,22 +193,13 @@ async function getBillAndRidingVoteResult(db, ridingName, billCode) {
             ridings_by_parliament,
             votes_by_bill
         FROM capitoll_v2.mps
-        WHERE votes_by_bill ? $1
-    `, [billCode]);
+        WHERE person_id = $2
+           OR votes_by_bill ? $1
+    `, [billCode, mpPersonId]);
 
-    const sessionMps = mpResult.rows.filter(candidate => {
-        const sessions = candidate.ridings_by_parliament?.[String(parliamentNumber)];
-        return Array.isArray(sessions) && sessions.some(entry =>
-            Number(entry.sessionNumber) === sessionNumber
-        );
-    });
-    const mp = sessionMps.find(candidate => {
-        const sessions = candidate.ridings_by_parliament[String(parliamentNumber)];
-        return sessions.some(entry =>
-            Number(entry.sessionNumber) === sessionNumber &&
-            entry.ridingName === ridingName
-        );
-    });
+    const mp = mpResult.rows.find(candidate =>
+        String(candidate.person_id) === String(mpPersonId)
+    );
     const mpVote = mp?.votes_by_bill?.[billCode] || null;
     const { tally, total, communityMajority } = getTally(bill.votes_by_key, ridingName);
     const officialResult = getOfficialVoteTally(mpResult.rows, billCode);
@@ -130,7 +212,10 @@ async function getBillAndRidingVoteResult(db, ridingName, billCode) {
             bill_code: bill.bill_code,
             title_en: bill.long_title_en,
             title_fr: bill.long_title_fr,
-            status: bill.status
+            status: bill.status,
+            has_been_voted_on: bill.has_been_voted_on,
+            mp_votes_by_riding: bill.mp_votes_by_riding,
+            user_vote_tallies_by_riding: bill.votes_by_key
         },
         riding: {
             name: ridingName,
@@ -230,15 +315,8 @@ async function submitRidingVote(pool, { billCode, ridingName, choice }) {
                   SELECT 1
                   FROM capitoll_v2.ridings AS riding
                   WHERE riding.name = $2
-                    AND EXISTS (
-                        SELECT 1
-                        FROM jsonb_array_elements(
-                            COALESCE(
-                                riding.mps_by_parliament -> bill.parliament_number::text,
-                                '[]'::jsonb
-                            )
-                        ) AS session_entry
-                        WHERE (session_entry ->> 'sessionNumber')::integer = bill.session_number
+                    AND riding.mps_by_parliament ? (
+                        bill.parliament_number::text || '-' || bill.session_number::text
                     )
               )
             RETURNING bill.bill_code
@@ -271,6 +349,7 @@ async function submitRidingVote(pool, { billCode, ridingName, choice }) {
 module.exports = {
     UserVoteError,
     getBillAndRidingVoteResult,
+    getRidingComplianceScore,
     getRidingVoteHistory,
     getRidingVoteResult,
     submitRidingVote

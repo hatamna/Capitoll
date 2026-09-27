@@ -127,6 +127,22 @@ function withSessionValue(
 }
 
 
+function withSessionMapping(
+    historyBySession,
+    parliamentNumber,
+    sessionNumber,
+    value
+) {
+    const updatedHistory =
+        historyBySession && typeof historyBySession === 'object'
+            ? { ...historyBySession }
+            : {};
+
+    updatedHistory[`${parliamentNumber}-${sessionNumber}`] = value;
+    return updatedHistory;
+}
+
+
 function makeUpsertValues(
     records,
     columnsPerRow,
@@ -349,14 +365,12 @@ async function importCurrentConstituencies(
                             record.officialLastName,
 
                         ridingsByParliament:
-                            withSessionValue(
+                            withSessionMapping(
                                 existing?.ridings_by_parliament,
 
                                 parlSession.parliamentNumber,
 
                                 parlSession.sessionNumber,
-
-                                'ridingName',
 
                                 record.ridingName
                             ),
@@ -391,7 +405,7 @@ async function importCurrentConstituencies(
                         record.ridingName,
 
                     mpsByParliament:
-                        withSessionValue(
+                        withSessionMapping(
                             ridingHistories.get(
                                 record.ridingName
                             ),
@@ -399,8 +413,6 @@ async function importCurrentConstituencies(
                             parlSession.parliamentNumber,
 
                             parlSession.sessionNumber,
-
-                            'personId',
 
                             record.personId
                         )
@@ -534,5 +546,6 @@ async function importCurrentConstituencies(
 
 module.exports = {
     importCurrentConstituencies,
-    mapConstituencies
+    mapConstituencies,
+    withSessionMapping
 };
