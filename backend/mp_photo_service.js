@@ -31,17 +31,19 @@ async function getCurrentMpForRiding(pool, ridingName) {
 
     const row = rows[0];
     const history = row.mps_by_parliament || {};
-    const parliamentNumber = Object.keys(history)
-        .map(Number)
-        .filter(Number.isInteger)
-        .sort((left, right) => right - left)[0];
-    const entries = history[String(parliamentNumber)];
-    const currentEntry = Array.isArray(entries)
-        ? [...entries].sort((left, right) =>
-            Number(right.sessionNumber) - Number(left.sessionNumber)
-        )[0]
-        : null;
-    const sessionNumber = Number(currentEntry?.sessionNumber);
+    const currentEntry = Object.entries(history)
+        .map(([sessionKey, personId]) => {
+            const [parliamentNumber, sessionNumber] = sessionKey
+                .split('-')
+                .map(Number);
+            return { parliamentNumber, sessionNumber, personId };
+        })
+        .filter(entry => Number.isInteger(entry.parliamentNumber) &&
+            Number.isInteger(entry.sessionNumber))
+        .sort((left, right) =>
+            right.parliamentNumber - left.parliamentNumber ||
+            right.sessionNumber - left.sessionNumber
+        )[0];
 
     if (!currentEntry?.personId) {
         throw new MpPhotoError(404, 'No MP is recorded for this riding in the current session');
@@ -49,8 +51,8 @@ async function getCurrentMpForRiding(pool, ridingName) {
 
     return {
         personId: String(currentEntry.personId),
-        parliamentNumber,
-        sessionNumber
+        parliamentNumber: currentEntry.parliamentNumber,
+        sessionNumber: currentEntry.sessionNumber
     };
 }
 

@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "import:data": "node initial_import.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test"
   },
   "keywords": [],
   "author": "",
