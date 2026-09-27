@@ -8,6 +8,7 @@ import {
 import './App.css';
 
 import logo from './assets/capitollLogo.png';
+import SharedFooter from './components/SharedFooter.jsx';
 
 
 const API_URL =
@@ -27,50 +28,32 @@ function getLatestValue(
     }
 
 
-    const parliamentNumbers =
-        Object.keys(history).sort(
-            (a, b) =>
-                Number(b) - Number(a)
-        );
-
-
-    for (
-        const parliamentNumber
-        of parliamentNumbers
-    ) {
-
-        const sessions =
-            history[parliamentNumber];
-
-
-        if (!Array.isArray(sessions)) {
-            continue;
+    const entries = Object.entries(history).flatMap(([key, value]) => {
+        const compositeKey = key.match(/^(\d+)-(\d+)$/);
+        if (compositeKey && typeof value === 'string') {
+            return [{
+                parliament: Number(compositeKey[1]),
+                session: Number(compositeKey[2]),
+                value,
+            }];
         }
 
-
-        const sortedSessions =
-            [...sessions].sort(
-                (a, b) =>
-                    Number(
-                        b.sessionNumber || 0
-                    ) -
-                    Number(
-                        a.sessionNumber || 0
-                    )
-            );
-
-
-        for (
-            const session
-            of sortedSessions
-        ) {
-
-            if (session?.[field]) {
-                return session[field];
-            }
-
+        if (/^\d+$/.test(key) && Array.isArray(value)) {
+            return value.map((entry) => ({
+                parliament: Number(key),
+                session: Number(entry?.sessionNumber || 0),
+                value: entry?.[field],
+            }));
         }
 
+        return [];
+    }).sort((left, right) =>
+        right.parliament - left.parliament || right.session - left.session
+    );
+
+    const latest = entries.find((entry) => entry.value);
+    if (latest) {
+        return latest.value;
     }
 
 
@@ -498,6 +481,9 @@ function MpPage() {
             ?.comparable_bills ||
         0;
 
+    const compliancePercentage =
+        comparison?.match_percentage;
+
 
     const differentCount =
         comparison
@@ -649,18 +635,12 @@ function MpPage() {
                                     <>
 
                                         <div className="comparisonMainNumber">
-
-                                            {sameCount}
-
-                                            <span>
-                                                /{comparableCount}
-                                            </span>
-
+                                            {compliancePercentage}%
                                         </div>
 
 
                                         <p className="comparisonMainLabel">
-                                            same as riding majority
+                                            compliance with riding majority
                                         </p>
 
 
@@ -971,57 +951,6 @@ function MpPage() {
             <SharedFooter />
 
         </div>
-    );
-}
-
-
-function SharedFooter() {
-    return (
-        <footer className="footer">
-
-            <div className="footerCopyright">
-                © 2026 Capitoll
-            </div>
-
-
-            <div className="footerCenter">
-
-                <div className="footerLinks">
-
-                    <button type="button">
-                        About
-                    </button>
-
-                    <span>•</span>
-
-                    <button type="button">
-                        Data Sources
-                    </button>
-
-                    <span>•</span>
-
-                    <button type="button">
-                        Privacy
-                    </button>
-
-                </div>
-
-
-                <p className="footerNotice">
-                    Parliamentary, riding, and MP data is drawn
-                    from public sources. Capitoll aims to keep
-                    information current, but accuracy,
-                    completeness, and availability are not guaranteed.
-                </p>
-
-            </div>
-
-
-            <div className="footerHackathon">
-                Built for Hack the Hill III 🇨🇦
-            </div>
-
-        </footer>
     );
 }
 

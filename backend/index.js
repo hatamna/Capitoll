@@ -15,6 +15,10 @@ const {
 } = require('./vote_participant_importer');
 
 const { getBillsAwaitingThirdReading } = require('./bill_service');
+const {
+    BillDescriptionError,
+    getOrGenerateBillDescription
+} = require('./bill_description_service');
 
 const {
     UserVoteError,
@@ -536,6 +540,33 @@ app.get(
                 success: false,
                 error:
                     'Failed to get bill'
+            });
+        }
+    }
+);
+
+
+app.get(
+    '/api/v2/bills/:billCode/description',
+    async (req, res) => {
+        try {
+            const result = await getOrGenerateBillDescription(
+                pool,
+                req.params.billCode
+            );
+            res.json(result);
+        } catch (error) {
+            if (error instanceof BillDescriptionError) {
+                return res.status(error.statusCode).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+
+            console.error('Failed to get bill description:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Failed to get bill description'
             });
         }
     }
@@ -1111,20 +1142,71 @@ app.get(
 
         try {
 
-            const { rows } =
+                const { rows } =
                 await pool.query(`
                     SELECT
-                        id,
-                        name,
-                        mps_by_parliament
-
-                    FROM capitoll_v2.ridings
-
-                    ORDER BY name
+                        riding.id,
+                        riding.name,
+                        riding.mps_by_parliament,
+                        history.mp_history
+                    FROM capitoll_v2.ridings AS riding
+                    LEFT JOIN LATERAL (
+                        SELECT COALESCE(
+                            jsonb_agg(
+                                jsonb_build_object(
+                                    'person_id', latest.person_id,
+                                    'name', COALESCE(
+                                        NULLIF(CONCAT_WS(
+                                            ' ',
+                                            mp.official_first_name,
+                                            mp.official_last_name
+                                        ), ''),
+                                        'MP ' || latest.person_id
+                                    ),
+                                    'parliament_number', latest.parliament_number,
+                                    'session_number', latest.session_number
+                                )
+                                ORDER BY
+                                    latest.parliament_number DESC,
+                                    latest.session_number DESC
+                            ),
+                            '[]'::jsonb
+                        ) AS mp_history
+                        FROM (
+                            SELECT DISTINCT ON (history.person_id)
+                                history.person_id,
+                                history.parliament_number,
+                                history.session_number
+                            FROM (
+                                SELECT
+                                    entry.person_id,
+                                    CASE
+                                        WHEN entry.session_key ~ '^[0-9]+-[0-9]+$'
+                                        THEN split_part(entry.session_key, '-', 1)::integer
+                                    END AS parliament_number,
+                                    CASE
+                                        WHEN entry.session_key ~ '^[0-9]+-[0-9]+$'
+                                        THEN split_part(entry.session_key, '-', 2)::integer
+                                    END AS session_number
+                                FROM jsonb_each_text(riding.mps_by_parliament)
+                                    AS entry(session_key, person_id)
+                                WHERE entry.person_id ~ '^[0-9]+$'
+                            ) AS history
+                            WHERE history.parliament_number IS NOT NULL
+                              AND history.session_number IS NOT NULL
+                            ORDER BY
+                                history.person_id,
+                                history.parliament_number DESC,
+                                history.session_number DESC
+                        ) AS latest
+                        LEFT JOIN capitoll_v2.mps AS mp
+                            ON mp.person_id::text = latest.person_id
+                    ) AS history ON TRUE
+                    ORDER BY riding.name
                 `);
 
 
-            res.json(rows);
+                res.json(rows);
 
         } catch (error) {
 

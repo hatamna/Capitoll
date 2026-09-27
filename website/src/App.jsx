@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom';
 import HomePage from './HomePage.jsx';
 import MpPage from './MpPage.jsx';
 import BillPage from './BillPage.jsx';
+import RidingPage from './RidingPage.jsx';
 
 
 function App() {
@@ -22,6 +23,11 @@ function App() {
             <Route
                 path="/bills/:billCode"
                 element={<BillPage />}
+            />
+
+            <Route
+                path="/ridings/:ridingId"
+                element={<RidingPage />}
             />
 
         </Routes>

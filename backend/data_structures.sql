@@ -76,6 +76,13 @@ CREATE TABLE IF NOT EXISTS capitoll_v2.ridings (
 CREATE UNIQUE INDEX IF NOT EXISTS capitoll_v2_ridings_name_unique
     ON capitoll_v2.ridings (name);
 
+CREATE TABLE IF NOT EXISTS capitoll_v2.bill_descriptions (
+    bill_code TEXT PRIMARY KEY
+        REFERENCES capitoll_v2.bills (bill_code) ON DELETE CASCADE,
+    description TEXT NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS capitoll_v2.initial_import_state (
     import_name TEXT PRIMARY KEY,
     completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

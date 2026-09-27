@@ -1,109 +1,116 @@
 import 'package:flutter/material.dart';
 import 'bill_details_page.dart';
-import 'past_bills_details_page.dart';
+import 'services/api_service.dart';
 import 'dart:ui';
 
 // Vote Status enum for clear status mapping
 enum VoteStatus { yes, no, abstained }
 
-class BillsPage extends StatelessWidget {
+class BillsPage extends StatefulWidget {
   const BillsPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Ongoing Bills',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 20),
+  State<BillsPage> createState() => _BillsPageState();
+}
 
-            BillVoteTile(
-              billNum: 'C-234',
-              billTitle: 'An Act to amend the Greenhouse Gas Pollution Pricing Act',
-              voteStatus: VoteStatus.yes,
-              onTap: () {},
-            ),
-            const SizedBox(height: 12),
+class _BillsPageState extends State<BillsPage> {
+  late Future<List<Map<String, dynamic>>> _billsFuture;
 
-            BillVoteTile(
-              billNum: 'C-11',
-              billTitle: 'Online Streaming Act',
-              voteStatus: VoteStatus.no,
-              onTap: () {},
-            ),
-            const SizedBox(height: 12),
+  @override
+  void initState() {
+    super.initState();
+    _billsFuture = ApiService.getBills();
+  }
 
-            BillVoteTile(
-              billNum: 'C-18',
-              billTitle: 'Online News Act',
-              voteStatus: VoteStatus.abstained,
-              onTap: () {},
-            ),
-            const SizedBox(height: 12),
+  Future<void> _refresh() async {
+    setState(() => _billsFuture = ApiService.getBills());
+    await _billsFuture;
+  }
 
-            BillVoteTile(
-              billNum: 'C-35',
-              billTitle: 'Canada Early Learning and Child Care Act',
-              voteStatus: VoteStatus.yes,
-              onTap: () {},
-            ),
-            const SizedBox(height: 12),
-
-            BillVoteTile(
-              billNum: 'C-27',
-              billTitle: 'Digital Charter Implementation Act',
-              voteStatus: VoteStatus.no,
-              onTap: () {},
-            ),
-
-            const SizedBox(height: 30),
-            const Text(
-              'Past Bills',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            PastVoteTile(
-              billNum: "C-46",
-              billTitle: "An Act to amend the Criminal Code (offences relating to conveyances) and to make consequential amendments to other Acts",
-              voteStatus: VoteStatus.no,
-              onTap: () {}
-            ),
-            
-            const SizedBox(height: 12),
-
-            PastVoteTile(
-              billNum: "C-99",
-              billTitle: "An Act to amend the Citizenship Act",
-              voteStatus: VoteStatus.no,
-              onTap: () {}
-            ),
-            const SizedBox(height: 12),
-
-            PastVoteTile(
-              billNum: "C-121",
-              billTitle: "Eldorado Nuclear Limited Reorganization and Divestiture Act",
-              voteStatus: VoteStatus.no,
-              onTap: () {}
-            ),
-            const SizedBox(height: 12),
-          ],
+  void _openBill(Map<String, dynamic> bill) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => BillDetailPage(
+          billNum: bill['bill_code'] as String,
         ),
       ),
     );
   }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _billsFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Could not load bills: ${snapshot.error}'),
+                    const SizedBox(height: 12),
+                    OutlinedButton(onPressed: _refresh, child: const Text('Retry')),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          final bills = snapshot.data ?? const [];
+          final ongoing = bills.where((bill) => bill['has_been_voted_on'] != true);
+          final past = bills.where((bill) => bill['has_been_voted_on'] == true);
+
+          return RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                _sectionTitle('Ongoing Bills'),
+                const SizedBox(height: 12),
+                if (ongoing.isEmpty)
+                  const Text('No bills are awaiting a House third-reading vote.'),
+                ...ongoing.map((bill) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: BillVoteTile(
+                    billNum: bill['bill_code'] as String,
+                    billTitle: bill['long_title_en'] as String? ?? '',
+                    voteStatus: VoteStatus.yes,
+                    onTap: () => _openBill(bill),
+                  ),
+                )),
+                const SizedBox(height: 18),
+                _sectionTitle('Past Bills'),
+                const SizedBox(height: 12),
+                if (past.isEmpty)
+                  const Text('No recorded third-reading votes yet.'),
+                ...past.map((bill) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: PastVoteTile(
+                    billNum: bill['bill_code'] as String,
+                    billTitle: bill['long_title_en'] as String? ?? '',
+                    voteStatus: VoteStatus.yes,
+                    onTap: () => _openBill(bill),
+                  ),
+                )),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String title) => Text(
+        title,
+        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+      );
 }
 
 class BillVoteTile extends StatelessWidget {
@@ -314,7 +321,7 @@ class PastVoteTile extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) =>  PastBillDetailPage(),
+                        builder: (context) => BillDetailPage(billNum: billNum),
                       ),
                     );
                   }

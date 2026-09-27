@@ -8,11 +8,38 @@ import {
 import './App.css';
 
 import logo from './assets/capitollLogo.png';
+import SharedFooter from './components/SharedFooter.jsx';
 
 
 const API_URL =
     import.meta.env.VITE_API_URL ||
     'http://localhost:3000';
+
+async function fetchBillDescription(billCode) {
+    const response = await fetch(
+        `${API_URL}/api/v2/bills/${encodeURIComponent(billCode)}/description`,
+        { headers: { Accept: 'application/json' } },
+    );
+    const responseText = await response.text();
+
+    let data;
+    try {
+        data = JSON.parse(responseText);
+    } catch {
+        throw new Error(
+            'The bill description API returned HTML instead of JSON. Confirm VITE_API_URL points to the updated backend and redeploy the backend if needed.',
+        );
+    }
+
+    if (!response.ok) {
+        throw new Error(data.error || 'Could not generate the bill description.');
+    }
+    if (typeof data.description !== 'string' || !data.description.trim()) {
+        throw new Error('The bill description API returned an empty description.');
+    }
+
+    return data.description.trim();
+}
 
 
 function BillPage() {
@@ -31,6 +58,17 @@ function BillPage() {
 
     const [error, setError] =
         useState('');
+
+    const [ridings, setRidings] = useState([]);
+    const [selectedRiding, setSelectedRiding] = useState('');
+    const [voteResult, setVoteResult] = useState(null);
+    const [voteLoading, setVoteLoading] = useState(false);
+    const [voteSubmitting, setVoteSubmitting] = useState(false);
+    const [voteMessage, setVoteMessage] = useState('');
+    const [billDescription, setBillDescription] = useState('');
+    const [descriptionAttempt, setDescriptionAttempt] = useState(0);
+    const [descriptionLoading, setDescriptionLoading] = useState(false);
+    const [descriptionError, setDescriptionError] = useState('');
 
 
     useEffect(() => {
@@ -103,6 +141,138 @@ function BillPage() {
         loadBill();
 
     }, [billCode]);
+
+    useEffect(() => {
+        if (!bill) return undefined;
+
+        let cancelled = false;
+        const loadDescription = async () => {
+            try {
+                setBillDescription('');
+                setDescriptionLoading(true);
+                setDescriptionError('');
+                const description = await fetchBillDescription(bill.bill_code);
+                if (!cancelled) setBillDescription(description);
+            } catch (descriptionFetchError) {
+                if (!cancelled) {
+                    setBillDescription('');
+                    setDescriptionError(
+                        descriptionFetchError.message || 'Could not generate the bill description.',
+                    );
+                }
+            } finally {
+                if (!cancelled) setDescriptionLoading(false);
+            }
+        };
+
+        loadDescription();
+        return () => { cancelled = true; };
+    }, [bill, descriptionAttempt]);
+
+    const retryBillDescription = () => {
+        setDescriptionAttempt((attempt) => attempt + 1);
+    };
+
+    useEffect(() => {
+        const loadRidings = async () => {
+            try {
+                const response = await fetch(`${API_URL}/api/v2/ridings`);
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to load ridings');
+                }
+
+                setRidings(data);
+                setSelectedRiding((current) => {
+                    if (current && data.some((riding) => riding.name === current)) {
+                        return current;
+                    }
+                    return data.find((riding) => riding.name === 'Ottawa Centre')?.name
+                        || data[0]?.name
+                        || '';
+                });
+            } catch (loadError) {
+                setVoteMessage(loadError.message || 'Could not load ridings.');
+            }
+        };
+
+        loadRidings();
+    }, []);
+
+    useEffect(() => {
+        if (!bill || !selectedRiding) {
+            return undefined;
+        }
+
+        let cancelled = false;
+        const loadVoteResult = async () => {
+            try {
+                setVoteLoading(true);
+                setVoteMessage('');
+                const response = await fetch(
+                    `${API_URL}/api/v2/bills/${encodeURIComponent(bill.bill_code)}/results?riding_name=${encodeURIComponent(selectedRiding)}`,
+                );
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'No riding vote data for this bill.');
+                }
+                if (!cancelled) setVoteResult(data);
+            } catch (loadError) {
+                if (!cancelled) {
+                    setVoteResult(null);
+                    setVoteMessage(loadError.message || 'Could not load vote results.');
+                }
+            } finally {
+                if (!cancelled) setVoteLoading(false);
+            }
+        };
+
+        loadVoteResult();
+        return () => { cancelled = true; };
+    }, [bill, selectedRiding]);
+
+    const isAwaitingThirdVote = Boolean(
+        bill &&
+        bill.has_been_voted_on !== true &&
+        !bill.passed_house_third_reading_at
+    );
+
+    const formatMpVote = (vote) => {
+        if (!vote) return 'No recorded vote';
+        const normalized = String(vote).trim().toUpperCase();
+        if (normalized === 'Y' || normalized === 'YES') return 'Yea';
+        if (normalized === 'A' || normalized === 'ABSTAIN' || normalized === 'PAIRED') return 'Abstained';
+        if (normalized === 'N' || normalized === 'NO') return 'Nay';
+        return vote;
+    };
+
+    const submitVote = async (choice) => {
+        if (!bill || !selectedRiding || !isAwaitingThirdVote) return;
+
+        try {
+            setVoteSubmitting(true);
+            setVoteMessage('');
+            const response = await fetch(`${API_URL}/api/v2/votes`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    bill_code: bill.bill_code,
+                    riding_name: selectedRiding,
+                    choice,
+                }),
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Could not submit vote.');
+            }
+            setVoteResult(data);
+            setVoteMessage('Vote recorded.');
+        } catch (submitError) {
+            setVoteMessage(submitError.message || 'Could not submit vote.');
+        } finally {
+            setVoteSubmitting(false);
+        }
+    };
 
 
     if (loading) {
@@ -320,6 +490,60 @@ function BillPage() {
 
                     <div className="billDivider" />
 
+                    <section className="billVoteSection">
+                        <p className="billSectionLabel">RIDING VOTE</p>
+                        <label className="billRidingControl">
+                            <span>Riding</span>
+                            <select
+                                value={selectedRiding}
+                                onChange={(event) => {
+                                    setVoteResult(null);
+                                    setSelectedRiding(event.target.value);
+                                }}
+                                disabled={ridings.length === 0}
+                            >
+                                {ridings.map((riding) => (
+                                    <option key={riding.id} value={riding.name}>
+                                        {riding.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+
+                        {voteLoading ? (
+                            <p>Loading riding votes…</p>
+                        ) : voteResult ? (
+                            <div className="billVoteSummary">
+                                <span>Yea: {voteResult.user_tally?.counts?.Y ?? 0}</span>
+                                <span>Abstained: {voteResult.user_tally?.counts?.A ?? 0}</span>
+                                <span>Nay: {voteResult.user_tally?.counts?.N ?? 0}</span>
+                                <span>MP: {formatMpVote(voteResult.mp?.vote)}</span>
+                            </div>
+                        ) : null}
+
+                        {voteMessage && <p className="billVoteMessage">{voteMessage}</p>}
+
+                        {isAwaitingThirdVote ? (
+                            <div className="billVoteActions">
+                                <button type="button" onClick={() => submitVote('Y')} disabled={voteSubmitting || !selectedRiding}>
+                                    Yea
+                                </button>
+                                <button type="button" onClick={() => submitVote('A')} disabled={voteSubmitting || !selectedRiding}>
+                                    Abstained
+                                </button>
+                                <button type="button" onClick={() => submitVote('N')} disabled={voteSubmitting || !selectedRiding}>
+                                    Nay
+                                </button>
+                            </div>
+                        ) : (
+                            <p className="billVoteClosedNotice">
+                                Voting is closed. This bill has passed third reading or is no longer awaiting a vote.
+                            </p>
+                        )}
+                    </section>
+
+                    <div className="billDivider" />
+
 
                     <section>
 
@@ -328,17 +552,20 @@ function BillPage() {
                         </p>
 
 
-                        <p className="billDescription">
-
-                            This page displays parliamentary
-                            information currently stored in
-                            Capitoll. Representative voting
-                            records and community feedback
-                            can be displayed alongside the
-                            bill as that information becomes
-                            available.
-
-                        </p>
+                        <div className="billDescription" aria-live="polite">
+                            {descriptionLoading ? (
+                                <p>Generating a neutral bill summary…</p>
+                            ) : billDescription ? (
+                                <p>{billDescription}</p>
+                            ) : (
+                                <div role="alert">
+                                    <p>{descriptionError || 'Could not generate the bill description.'}</p>
+                                    <button type="button" onClick={retryBillDescription}>
+                                        Try again
+                                    </button>
+                                </div>
+                            )}
+                        </div>
 
                     </section>
 
@@ -371,57 +598,6 @@ function BillDetail({
             </strong>
 
         </div>
-    );
-}
-
-
-function SharedFooter() {
-    return (
-        <footer className="footer">
-
-            <div className="footerCopyright">
-                © 2026 Capitoll
-            </div>
-
-
-            <div className="footerCenter">
-
-                <div className="footerLinks">
-
-                    <button type="button">
-                        About
-                    </button>
-
-                    <span>•</span>
-
-                    <button type="button">
-                        Data Sources
-                    </button>
-
-                    <span>•</span>
-
-                    <button type="button">
-                        Privacy
-                    </button>
-
-                </div>
-
-
-                <p className="footerNotice">
-                    Parliamentary, riding, and MP data is drawn
-                    from public sources. Capitoll aims to keep
-                    information current, but accuracy,
-                    completeness, and availability are not guaranteed.
-                </p>
-
-            </div>
-
-
-            <div className="footerHackathon">
-                Built for Hack the Hill III 🇨🇦
-            </div>
-
-        </footer>
     );
 }
 

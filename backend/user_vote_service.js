@@ -287,6 +287,28 @@ async function submitRidingVote(pool, { billCode, ridingName, choice }) {
     try {
         await client.query('BEGIN');
 
+        const billCheck = await client.query(`
+            SELECT bill_code, has_been_voted_on, passed_house_third_reading_at, status
+            FROM capitoll_v2.bills
+            WHERE bill_code = $1
+            LIMIT 1
+            FOR UPDATE
+        `, [normalizedBillCode]);
+
+        if (billCheck.rows.length === 0) {
+            throw new UserVoteError(404, 'Bill not found');
+        }
+
+        const billRow = billCheck.rows[0];
+        const passedThirdReadingAt = billRow.passed_house_third_reading_at;
+        const hasPassedThirdReading = Boolean(
+            passedThirdReadingAt &&
+            !String(passedThirdReadingAt).startsWith('0001-01-01')
+        );
+        if (billRow.has_been_voted_on || hasPassedThirdReading) {
+            throw new UserVoteError(400, 'Voting is only permitted on bills awaiting a third vote');
+        }
+
         const updateResult = await client.query(`
             UPDATE capitoll_v2.bills AS bill
             SET votes_by_key = jsonb_set(

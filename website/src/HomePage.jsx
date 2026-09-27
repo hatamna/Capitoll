@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 import './App.css';
+import { getRidingMpEntries } from './ridingUtils.js';
 import logo from './assets/capitollLogo.png';
 
 
@@ -19,6 +20,7 @@ function HomePage() {
 
   const [mps, setMps] = useState([]);
   const [bills, setBills] = useState([]);
+  const [ridings, setRidings] = useState([]);
 
   const [loadingData, setLoadingData] = useState(true);
   const [dataError, setDataError] = useState('');
@@ -36,7 +38,8 @@ function HomePage() {
 
         const [
           mpResponse,
-          billResponse
+          billResponse,
+          ridingResponse
         ] = await Promise.all([
           fetch(
             `${API_URL}/api/v2/mps`
@@ -44,6 +47,10 @@ function HomePage() {
 
           fetch(
             `${API_URL}/api/v2/bills`
+          ),
+
+          fetch(
+            `${API_URL}/api/v2/ridings`
           )
         ]);
 
@@ -53,6 +60,9 @@ function HomePage() {
 
         const billData =
           await billResponse.json();
+
+        const ridingData =
+          await ridingResponse.json();
 
 
         if (!mpResponse.ok) {
@@ -70,6 +80,13 @@ function HomePage() {
           );
         }
 
+        if (!ridingResponse.ok) {
+          throw new Error(
+            ridingData.error ||
+            'Failed to load riding history'
+          );
+        }
+
 
         setMps(
           mpData.mps || []
@@ -80,6 +97,12 @@ function HomePage() {
           Array.isArray(billData)
             ? billData
             : billData.bills || []
+        );
+
+        setRidings(
+          Array.isArray(ridingData)
+            ? ridingData
+            : []
         );
 
       } catch (error) {
@@ -140,7 +163,7 @@ function HomePage() {
   const cleanBillCode = (value) => {
     return String(value || '')
       .replace(
-        /\(\d+-\d+\)$/g,
+        /\s*\(\s*\d+\s*-\s*\d+\s*\)\s*$/g,
         ''
       )
       .trim();
@@ -156,7 +179,7 @@ function HomePage() {
       return 0;
     }
 
-
+    const personId = String(mp.person_id || '').toLowerCase().trim();
     const name =
       mp.name?.toLowerCase() || '';
 
@@ -166,16 +189,21 @@ function HomePage() {
     const party =
       mp.party?.toLowerCase() || '';
 
+    if (personId && personId === query) {
+      return 130;
+    }
+
+    if (personId && personId.startsWith(query)) {
+      return 115;
+    }
 
     if (name === query) {
       return 120;
     }
 
-
     if (name.startsWith(query)) {
       return 110;
     }
-
 
     if (
       startsWithWord(
@@ -186,16 +214,13 @@ function HomePage() {
       return 100;
     }
 
-
     if (riding === query) {
       return 95;
     }
 
-
     if (riding.startsWith(query)) {
       return 90;
     }
-
 
     if (
       startsWithWord(
@@ -206,26 +231,25 @@ function HomePage() {
       return 80;
     }
 
-
     if (name.includes(query)) {
       return 70;
     }
 
+    if (personId && personId.includes(query)) {
+      return 65;
+    }
 
     if (riding.includes(query)) {
       return 60;
     }
 
-
     if (party.startsWith(query)) {
       return 20;
     }
 
-
     if (party.includes(query)) {
       return 10;
     }
-
 
     return 0;
   };
@@ -268,32 +292,11 @@ function HomePage() {
   // RIDINGS
   // =========================================
 
-  const ridings = Array.from(
-    new Map(
-      mps
-        .filter((mp) =>
-          mp.riding_name
-        )
-
-        .map((mp) => [
-          mp.riding_name,
-
-          {
-            riding_name:
-              mp.riding_name,
-
-            person_id:
-              mp.person_id,
-
-            mp_name:
-              mp.name,
-
-            party:
-              mp.party
-          }
-        ])
-    ).values()
-  );
+  const ridingSearchItems = ridings.map((riding) => ({
+    ...riding,
+    riding_name: riding.name,
+    mp_history: getRidingMpEntries(riding, mps),
+  }));
 
 
   const getRidingSearchScore = (
@@ -304,21 +307,22 @@ function HomePage() {
       return 0;
     }
 
-
+    const personId = String(riding.mp_history?.[0]?.person_id || '').toLowerCase().trim();
     const name =
       riding.riding_name
         ?.toLowerCase() || '';
 
+    if (personId && personId === query) {
+      return 125;
+    }
 
     if (name === query) {
       return 120;
     }
 
-
     if (name.startsWith(query)) {
       return 110;
     }
-
 
     if (
       startsWithWord(
@@ -329,17 +333,15 @@ function HomePage() {
       return 100;
     }
 
-
     if (name.includes(query)) {
       return 60;
     }
-
 
     return 0;
   };
 
 
-  const filteredRidings = ridings
+  const filteredRidings = ridingSearchItems
     .map((riding) => ({
       ...riding,
 
@@ -386,22 +388,27 @@ function HomePage() {
       return 0;
     }
 
-
-    const baseCode =
+    const rawBase =
       cleanBillCode(
         bill.number_code ||
         bill.bill_code
       )
         .toLowerCase();
 
+    const baseCode = rawBase.replace(/\s+/g, '');
+
+    const parlNum = String(bill.parliament_number || '').trim();
+    const sessNum = String(bill.session_number || '').trim();
+
+    const canonicalCode = (bill.bill_code || '').toLowerCase().replace(/\s+/g, '');
+    const fullDisplayCode = parlNum && sessNum ? `${baseCode}(${parlNum}-${sessNum})` : baseCode;
+    const parlOnlyCode = parlNum ? `${baseCode}(${parlNum})` : baseCode;
 
     const title =
-      (
-        bill.long_title_en ||
-        ''
-      )
+      [bill.long_title_en, bill.long_title_fr, bill.status]
+        .filter(Boolean)
+        .join(' ')
         .toLowerCase();
-
 
     const normalizedQuery =
       query.replace(
@@ -409,37 +416,87 @@ function HomePage() {
         ''
       );
 
-
-    const normalizedCode =
-      baseCode.replace(
-        /\s+/g,
-        ''
-      );
-
-
+    // Exact match for full parenthesized codes (e.g. "c-11(45-1)" or "c-11 (45-1)")
     if (
-      normalizedCode ===
+      (canonicalCode && canonicalCode === normalizedQuery) ||
+      fullDisplayCode === normalizedQuery
+    ) {
+      return 200;
+    }
+
+    // Prefix match for parenthesized typing (e.g. "c-11(", "c-11(45", "c-11(45-")
+    if (
+      (canonicalCode && canonicalCode.startsWith(normalizedQuery)) ||
+      fullDisplayCode.startsWith(normalizedQuery)
+    ) {
+      return 180;
+    }
+
+    // Parliament number in parentheses (e.g. "c-11(45)" or "c-11 (45)")
+    if (parlOnlyCode === normalizedQuery) {
+      return 175;
+    }
+
+    if (parlOnlyCode.startsWith(normalizedQuery)) {
+      return 170;
+    }
+
+    // Dynamic parenthesis inspection: query contains "(" with specific session/parliament
+    const parenMatch = query.match(/^([^(]+)\((.*)$/);
+    if (parenMatch) {
+      const qBase = parenMatch[1].trim().toLowerCase().replace(/\s+/g, '');
+      const qInside = parenMatch[2].replace(/\)/g, '').trim().toLowerCase();
+
+      if (baseCode === qBase || baseCode.startsWith(qBase)) {
+        const numbers = qInside.match(/\d+/g);
+        if (numbers && numbers.length >= 2) {
+          if (numbers[0] === parlNum && numbers[1] === sessNum) {
+            return 200;
+          }
+        } else if (numbers && numbers.length === 1) {
+          if (qInside.includes('sess') && numbers[0] === sessNum) {
+            return 185;
+          }
+          if (qInside.includes('parl') && numbers[0] === parlNum) {
+            return 185;
+          }
+          if (numbers[0] === parlNum) {
+            return 180;
+          }
+          if (numbers[0] === sessNum) {
+            return 175;
+          }
+        }
+
+        if (qInside && (title.includes(qInside) || String(bill.status || '').toLowerCase().includes(qInside))) {
+          return 175;
+        }
+
+        return 165;
+      }
+    }
+
+    // Standard base code matching (e.g. "c-11")
+    if (
+      baseCode ===
       normalizedQuery
     ) {
       return 150;
     }
 
-
     if (
-      normalizedCode.startsWith(
+      baseCode.startsWith(
         normalizedQuery
       )
     ) {
       return 140;
     }
 
-
     if (
       title.startsWith(query)
     ) {
       return 110;
     }
-
 
     if (
       startsWithWord(
@@ -450,13 +507,11 @@ function HomePage() {
       return 100;
     }
 
-
     if (
       title.includes(query)
     ) {
       return 70;
     }
-
 
     return 0;
   };
@@ -565,6 +620,9 @@ function HomePage() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (search.trim()) {
+      setSearchOpen(true);
+    }
   };
 
 
@@ -584,13 +642,6 @@ function HomePage() {
   };
 
 
-  const handleRidingClick = (
-    riding
-  ) => {
-    navigate(
-      `/mps/${riding.person_id}`
-    );
-  };
 
 
   const handleBillClick = (
@@ -850,6 +901,10 @@ function HomePage() {
                                   {mp.party
                                     ? ` • ${mp.party}`
                                     : ''}
+
+                                  {mp.person_id
+                                    ? ` • ID: ${mp.person_id}`
+                                    : ''}
                                 </p>
 
                               </div>
@@ -963,57 +1018,51 @@ function HomePage() {
                           .slice(0, 8)
                           .map((riding) => (
 
-                            <button
-                              key={
-                                `riding-${riding.riding_name}`
-                              }
-
-                              type="button"
-
-                              className="searchSuggestion"
-
-                              onMouseDown={(e) =>
-                                e.preventDefault()
-                              }
-
-                              onClick={() =>
-                                handleRidingClick(
-                                  riding
-                                )
-                              }
+                            <article
+                              key={`riding-${riding.riding_name}`}
+                              className="searchSuggestion ridingSearchSuggestion"
                             >
-
-                              <span className="suggestionIcon">
+                              <span className="suggestionIcon" aria-hidden="true">
                                 📍
                               </span>
 
-
-                              <div>
-
-                                <strong>
-                                  {
-                                    riding.riding_name
-                                  }
-                                </strong>
-
-                                <p>
-                                  {
-                                    riding.mp_name
-                                  }
-
-                                  {riding.party
-                                    ? ` • ${riding.party}`
-                                    : ''}
-                                </p>
-
+                              <div className="ridingSearchContent">
+                                <Link
+                                  className="ridingSearchTitle"
+                                  to={`/ridings/${encodeURIComponent(riding.id)}`}
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={() => setSearchOpen(false)}
+                                >
+                                  {riding.riding_name}
+                                </Link>
+                                {riding.mp_history.length > 0 ? (
+                                  <div
+                                    className="ridingMpHistory"
+                                    aria-label={riding.mp_history[0].is_current ? 'Current MP' : 'MP history, newest to oldest'}
+                                  >
+                                    {riding.mp_history.map((mp) => (
+                                      <Link
+                                        key={`${riding.riding_name}-${mp.person_id}`}
+                                        className="ridingMpHistoryLink"
+                                        to={`/mps/${encodeURIComponent(mp.person_id)}`}
+                                        onMouseDown={(event) => event.preventDefault()}
+                                        onClick={() => setSearchOpen(false)}
+                                      >
+                                        <span className="ridingMpName">{mp.name}</span>
+                                        <span className="ridingMpTerm">
+                                          {mp.is_current
+                                            ? 'Current MP'
+                                            : `Parliament ${mp.parliament_number}, Session ${mp.session_number}`}
+                                        </span>
+                                        <span className="ridingMpArrow" aria-hidden="true">→</span>
+                                      </Link>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="ridingMpEmpty">No MP data available.</p>
+                                )}
                               </div>
-
-
-                              <span className="arrow">
-                                →
-                              </span>
-
-                            </button>
+                            </article>
 
                           ))}
 
@@ -1037,6 +1086,21 @@ function HomePage() {
 
                       </div>
 
+                    )}
+
+
+                  {!loadingData &&
+                    !dataError &&
+                    category !== 'All' &&
+                    (
+                      (category === 'MPs' && filteredMps.length === 0) ||
+                      (category === 'Bills' && filteredBills.length === 0) ||
+                      (category === 'Ridings' && filteredRidings.length === 0)
+                    ) && (
+                      <div className="searchHint">
+                        <strong>No {category.toLowerCase()} found</strong>
+                        <p>Try another name, bill code, or riding.</p>
+                      </div>
                     )}
 
                 </>

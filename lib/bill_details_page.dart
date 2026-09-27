@@ -1,447 +1,406 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'groq_service.dart';
+
+import 'services/api_service.dart';
+import 'services/riding_preference_service.dart';
 
 class BillDetailPage extends StatefulWidget {
-  final String billNum; // Keep this here
+  final String billNum;
 
-  const BillDetailPage({
-    super.key,
-    required this.billNum,
-  });
+  const BillDetailPage({super.key, required this.billNum});
 
   @override
   State<BillDetailPage> createState() => _BillDetailPageState();
 }
 
 class _BillDetailPageState extends State<BillDetailPage> {
-  late Future<String> _summaryFuture;
+  late Future<Map<String, dynamic>> _billFuture;
+  late Future<Map<String, dynamic>> _descriptionFuture;
+  List<Map<String, dynamic>> _ridings = [];
+  String? _selectedRiding;
+  Map<String, dynamic>? _voteResult;
+  String? _voteError;
+  bool _loadingRidings = true;
+  bool _loadingVoteResult = false;
+  bool _submittingVote = false;
   bool _hasWeighedIn = false;
 
   @override
   void initState() {
     super.initState();
-    _summaryFuture = GroqService.fetchBillSummary(widget.billNum, 'Bill Details');
+    RidingPreferenceService.currentRiding.addListener(_onPreferenceChanged);
+    _billFuture = ApiService.getBill(widget.billNum);
+    _descriptionFuture = ApiService.getBillDescription(widget.billNum);
+    _loadRidings();
+  }
+
+  @override
+  void dispose() {
+    RidingPreferenceService.currentRiding.removeListener(_onPreferenceChanged);
+    super.dispose();
+  }
+
+  void _onPreferenceChanged() {
+    final ridingName = RidingPreferenceService.currentRiding.value;
+    if (!mounted ||
+        ridingName == null ||
+        !_ridings.any((riding) => riding['name'] == ridingName) ||
+        ridingName == _selectedRiding) {
+      return;
+    }
+
+    setState(() {
+      _selectedRiding = ridingName;
+      _hasWeighedIn = false;
+    });
+    _loadVoteResult();
+  }
+
+  Future<void> _loadRidings() async {
+    try {
+      final ridings = await ApiService.getRidings();
+      if (!mounted) return;
+
+      final ridingNames = ridings
+          .map((riding) => riding['name'] as String?)
+          .whereType<String>()
+          .toList();
+      final preferredRiding = RidingPreferenceService.currentRiding.value;
+      final selectedRiding = ridingNames.contains(preferredRiding)
+          ? preferredRiding
+          : ridingNames.contains('Ottawa Centre')
+          ? 'Ottawa Centre'
+          : ridingNames.isNotEmpty
+          ? ridingNames.first
+          : null;
+
+      setState(() {
+        _ridings = ridings;
+        _selectedRiding = selectedRiding;
+        _loadingRidings = false;
+      });
+
+      if (selectedRiding != null && selectedRiding != preferredRiding) {
+        await RidingPreferenceService.setCurrentRiding(selectedRiding);
+      }
+      await _loadVoteResult();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _voteError = error.toString();
+        _loadingRidings = false;
+      });
+    }
+  }
+
+  Future<void> _loadVoteResult() async {
+    final ridingName = _selectedRiding;
+    if (ridingName == null) return;
+
+    setState(() {
+      _loadingVoteResult = true;
+      _voteError = null;
+    });
+
+    try {
+      final result = await ApiService.getBillRidingResult(
+        widget.billNum,
+        ridingName,
+      );
+      if (!mounted) return;
+      setState(() => _voteResult = result);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _voteResult = null;
+        _voteError =
+            'No voting data is available for this riding and bill session.';
+      });
+    } finally {
+      if (mounted) setState(() => _loadingVoteResult = false);
+    }
+  }
+
+  bool _isBillVoteOpen(Map<String, dynamic> bill) {
+    final passedAt = bill['passed_house_third_reading_at']?.toString();
+    final hasPassedThirdReading =
+        passedAt != null &&
+        passedAt.isNotEmpty &&
+        !passedAt.startsWith('0001-01-01');
+    return bill['has_been_voted_on'] != true && !hasPassedThirdReading;
+  }
+
+  void _retryDescription() {
+    setState(() {
+      _descriptionFuture = ApiService.getBillDescription(widget.billNum);
+    });
+  }
+
+  Future<void> _submitVote(String choice, Map<String, dynamic> bill) async {
+    final ridingName = _selectedRiding;
+    if (ridingName == null || !_isBillVoteOpen(bill)) return;
+
+    setState(() => _submittingVote = true);
+    try {
+      final result = await ApiService.submitRidingVote(
+        billCode: widget.billNum,
+        ridingName: ridingName,
+        choice: choice,
+      );
+      if (!mounted) return;
+      setState(() {
+        _voteResult = result;
+        _hasWeighedIn = true;
+      });
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Your vote was recorded.')));
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _voteError = error.toString());
+    } finally {
+      if (mounted) setState(() => _submittingVote = false);
+    }
+  }
+
+  Future<void> _showVoteSheet(Map<String, dynamic> bill) async {
+    if (!_isBillVoteOpen(bill)) return;
+    String? selectedChoice;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            12,
+            20,
+            MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Your vote for ${widget.billNum}',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              Text('Riding: ${_selectedRiding ?? 'Not selected'}'),
+              const SizedBox(height: 20),
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'Y', label: Text('For')),
+                  ButtonSegment(value: 'A', label: Text('Abstain')),
+                  ButtonSegment(value: 'N', label: Text('Against')),
+                ],
+                selected: selectedChoice == null ? {} : {selectedChoice!},
+                onSelectionChanged: (selection) {
+                  setSheetState(() => selectedChoice = selection.first);
+                },
+              ),
+              const SizedBox(height: 20),
+              FilledButton(
+                onPressed: selectedChoice == null || _submittingVote
+                    ? null
+                    : () => _submitVote(selectedChoice!, bill),
+                child: _submittingVote
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Submit vote'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Color(0xFFF8F9FA),
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
         backgroundColor: Colors.white,
-        elevation: 0,
         centerTitle: true,
-        iconTheme: IconThemeData(color: Colors.black87),
-        title: Text(
-          'Bill Details',
-          style: TextStyle(
-            color: Colors.black87,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        title: const Text('Bill Details'),
       ),
-      body: Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(height: 10),
-            Text(
-              'BILL',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey,
-              ),
-            ),
-            Transform.translate(
-              offset: Offset(0, -8),
-              child: Text(
-                widget.billNum,
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 70,
+      body: FutureBuilder<Map<String, dynamic>>(
+        future: _billFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError || !snapshot.hasData) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'Could not load bill: ${snapshot.error ?? 'No data'}',
                 ),
               ),
-            ),
-            SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: EdgeInsets.all(20.0),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.grey.shade200),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 12,
-                    offset: Offset(0, 4),
-                  ),
-                ],
+            );
+          }
+
+          final bill = snapshot.data!;
+          final tally = _voteResult?['user_tally'] as Map<String, dynamic>?;
+          final counts = tally?['counts'] as Map<String, dynamic>? ?? {};
+          final mp = _voteResult?['mp'] as Map<String, dynamic>?;
+          final mpVote = mp?['vote']?.toString();
+
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text(
+                bill['bill_code']?.toString() ?? widget.billNum,
+                style: const TextStyle(
+                  fontSize: 30,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-              child: FutureBuilder<String>(
-                future: _summaryFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return Center(
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(vertical: 32.0),
-                        child: Column(
-                          children: [
-                            CircularProgressIndicator(),
-                            SizedBox(height: 12),
-                            Text('Generating detailed summary...', style: TextStyle(color: Colors.black, fontSize: 16.0, height: 1.5)),
-                          ],
-                        ),
-                      ),
-                    );
-                  } else if (snapshot.hasError) {
-                    return Container(
-                      padding: EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.red.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        'Failed to load summary: ${snapshot.error}',
-                        style: TextStyle(color: Colors.black, fontSize: 16.0, height: 1.5)
-                      ),
-                    );
-                  } else if (snapshot.hasData) {
-                    return Text(
-                      snapshot.data!,
-                      style: TextStyle(
-                        fontSize: 16.0,
-                        height: 1.5,
-                      ),
+              const SizedBox(height: 8),
+              Text(
+                bill['long_title_en']?.toString() ?? 'Title unavailable',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if ((bill['long_title_fr'] ?? '').toString().isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(bill['long_title_fr'].toString()),
+              ],
+              const SizedBox(height: 12),
+              const Text(
+                'ABOUT THIS BILL',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.8,
+                  color: Colors.grey,
+                ),
+              ),
+              const SizedBox(height: 6),
+              FutureBuilder<Map<String, dynamic>>(
+                future: _descriptionFuture,
+                builder: (context, descriptionSnapshot) {
+                  if (descriptionSnapshot.connectionState ==
+                      ConnectionState.waiting) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: LinearProgressIndicator(),
                     );
                   }
-                  return Text('No summary available.', style: TextStyle(color: Colors.black, fontSize: 16.0, height: 1.5));
+                  if (descriptionSnapshot.hasError) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Could not generate the bill description.'),
+                        TextButton(
+                          onPressed: _retryDescription,
+                          child: const Text('Try again'),
+                        ),
+                      ],
+                    );
+                  }
+                  return Text(
+                    descriptionSnapshot.data?['description']?.toString() ?? '',
+                    style: const TextStyle(fontSize: 15, height: 1.45),
+                  );
                 },
-              )
-            ),
-          ],
-        ),
-      ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-          child: SizedBox(
-            height: 54.0,
-            width: double.infinity,
-            child: Stack(
-              children: [
-                if (!_hasWeighedIn)
-                  Positioned.fill(
-                    child: Transform.translate(
-                      offset: const Offset(0, 6),
-                      child: ImageFiltered(
-                        imageFilter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(27.0),
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                const Color(0xFFFF4D4D).withValues(alpha: 0.6),
-                                const Color(0xFFD32F2F).withValues(alpha: 0.6),
-                              ],
+              ),
+              Text('Status: ${bill['status'] ?? 'Unknown'}'),
+              Text(
+                'Parliament ${bill['parliament_number']}-${bill['session_number']}',
+              ),
+              const SizedBox(height: 20),
+              DropdownButtonFormField<String>(
+                key: ValueKey(_selectedRiding),
+                initialValue: _selectedRiding,
+                decoration: const InputDecoration(
+                  labelText: 'Riding',
+                  border: OutlineInputBorder(),
+                ),
+                items: _ridings
+                    .map(
+                      (riding) => DropdownMenuItem<String>(
+                        value: riding['name'] as String,
+                        child: Text(riding['name'] as String),
+                      ),
+                    )
+                    .toList(),
+                onChanged: _loadingRidings
+                    ? null
+                    : (value) {
+                        setState(() {
+                          _selectedRiding = value;
+                          _hasWeighedIn = false;
+                        });
+                        _loadVoteResult();
+                      },
+              ),
+              const SizedBox(height: 16),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: _loadingVoteResult
+                      ? const Center(child: CircularProgressIndicator())
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Riding votes',
+                              style: TextStyle(fontWeight: FontWeight.bold),
                             ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(27.0),
-                    color: _hasWeighedIn ? Colors.grey.shade400 : null,
-                    gradient: _hasWeighedIn
-                        ? null
-                        : const LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              Color(0xFFFF4D4D),
-                              Color(0xFFD32F2F),
+                            const SizedBox(height: 8),
+                            Text('For: ${counts['Y'] ?? 0}'),
+                            Text('Against: ${counts['N'] ?? 0}'),
+                            Text('Abstain: ${counts['A'] ?? 0}'),
+                            const SizedBox(height: 8),
+                            Text('Your MP: ${mpVote ?? 'No recorded vote'}'),
+                            if (_voteError != null) ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                _voteError!,
+                                style: TextStyle(color: Colors.orange.shade900),
+                              ),
                             ],
-                          ),
-                  ),
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(27.0),
-                      onTap: _hasWeighedIn
-                          ? null
-                          : () {
-                              // Local state for the modal's current selection
-                              String? selectedStance;
-
-                              showModalBottomSheet(
-                                context: context,
-                                isScrollControlled: true,
-                                backgroundColor: Colors.transparent,
-                                builder: (BuildContext context) {
-                                  // Wrap the bottom sheet content in a StatefulBuilder
-                                  return StatefulBuilder(
-                                    builder: (BuildContext context, StateSetter setModalState) {
-                                      return Padding(
-                                        padding: EdgeInsets.only(
-                                            bottom: MediaQuery.of(context).viewInsets.bottom),
-                                        child: Container(
-                                          height: MediaQuery.of(context).size.height * 0.55,
-                                          decoration: const BoxDecoration(
-                                            color: Colors.white,
-                                            borderRadius: BorderRadius.only(
-                                              topLeft: Radius.circular(24),
-                                              topRight: Radius.circular(24),
-                                            ),
-                                          ),
-                                          child: Padding(
-                                            padding: const EdgeInsets.all(24.0),
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                Row(
-                                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                  children: [
-                                                    const Text(
-                                                      'Weigh In on C-99',
-                                                      style: TextStyle(
-                                                        fontSize: 22,
-                                                        fontWeight: FontWeight.bold,
-                                                        color: Colors.black87,
-                                                      ),
-                                                    ),
-                                                    IconButton(
-                                                      icon: const Icon(Icons.close, color: Colors.grey),
-                                                      onPressed: () => Navigator.pop(context),
-                                                    ),
-                                                  ],
-                                                ),
-                                                const SizedBox(height: 8),
-                                                const Text(
-                                                  'Indicate your stance on this bill to signal to your MP how they should represent your riding.',
-                                                  style: TextStyle(
-                                                    fontSize: 14,
-                                                    color: Colors.black54,
-                                                    height: 1.4,
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 24),
-                                                Expanded(
-                                                  child: SingleChildScrollView(
-                                                    child: Column(
-                                                      children: [
-                                                        Row(
-                                                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                                          children: [
-                                                            _buildStanceButton(
-                                                              'For',
-                                                              const Color(0xFF2E7D32),
-                                                              selectedStance,
-                                                              (val) => setModalState(() => selectedStance = val),
-                                                            ),
-                                                            _buildStanceButton(
-                                                              'Neutral',
-                                                              Colors.grey.shade700,
-                                                              selectedStance,
-                                                              (val) => setModalState(() => selectedStance = val),
-                                                              borderColor: Colors.grey.shade400,
-                                                            ),
-                                                            _buildStanceButton(
-                                                              'Against',
-                                                              const Color(0xFFC62828),
-                                                              selectedStance,
-                                                              (val) => setModalState(() => selectedStance = val),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                        const SizedBox(height: 20),
-                                                        Row(
-                                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                                          children: [
-                                                            Expanded(
-                                                              flex: 2,
-                                                              child: DropdownButtonFormField<String>(
-                                                                decoration: _inputDecoration('Gender'),
-                                                                items: ['Male', 'Female', 'Other', 'Prefer not to say']
-                                                                    .map((String value) {
-                                                                  return DropdownMenuItem<String>(
-                                                                    value: value,
-                                                                    child: Text(value, style: const TextStyle(fontSize: 14)),
-                                                                  );
-                                                                }).toList(),
-                                                                onChanged: (_) {},
-                                                              ),
-                                                            ),
-                                                            const SizedBox(width: 16),
-                                                            Expanded(
-                                                              flex: 1,
-                                                              child: TextFormField(
-                                                                keyboardType: TextInputType.number,
-                                                                decoration: _inputDecoration('Age'),
-                                                              ),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                ),
-                                                Row(
-                                                  children: [
-                                                    Expanded(
-                                                      child: OutlinedButton(
-                                                        onPressed: () => Navigator.pop(context),
-                                                        style: OutlinedButton.styleFrom(
-                                                          padding: const EdgeInsets.symmetric(vertical: 16),
-                                                          side: BorderSide(color: Colors.grey.shade300),
-                                                          shape: RoundedRectangleBorder(
-                                                            borderRadius: BorderRadius.circular(12),
-                                                          ),
-                                                        ),
-                                                        child: const Text(
-                                                          'Cancel',
-                                                          style: TextStyle(
-                                                            color: Colors.black87,
-                                                            fontWeight: FontWeight.bold,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ),
-                                                    const SizedBox(width: 16),
-                                                    Expanded(
-                                                      child: Container(
-                                                        decoration: BoxDecoration(
-                                                          borderRadius: BorderRadius.circular(12),
-                                                          gradient: LinearGradient(
-                                                            // Dim the submit button if no stance is selected
-                                                            colors: selectedStance == null 
-                                                                ? [Colors.grey.shade400, Colors.grey.shade500]
-                                                                : [const Color(0xFFFF4D4D), const Color(0xFFD32F2F)],
-                                                          ),
-                                                        ),
-                                                        child: ElevatedButton(
-                                                          onPressed: selectedStance == null 
-                                                            ? null // Disable tap if nothing is selected
-                                                            : () {
-                                                              Navigator.pop(context);
-                                                              setState(() {
-                                                                _hasWeighedIn = true;
-                                                              });
-                                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                                const SnackBar(
-                                                                  content: Text('Your stance has been successfully recorded!'),
-                                                                  behavior: SnackBarBehavior.floating,
-                                                                  backgroundColor: Color(0xFF2E7D32),
-                                                                ),
-                                                              );
-                                                            },
-                                                          style: ElevatedButton.styleFrom(
-                                                            backgroundColor: Colors.transparent,
-                                                            shadowColor: Colors.transparent,
-                                                            disabledBackgroundColor: Colors.transparent, // Keeps the gradient visible when disabled
-                                                            padding: const EdgeInsets.symmetric(vertical: 16),
-                                                            shape: RoundedRectangleBorder(
-                                                              borderRadius: BorderRadius.circular(12),
-                                                            ),
-                                                          ),
-                                                          child: const Text(
-                                                            'Submit',
-                                                            style: TextStyle(
-                                                              color: Colors.white,
-                                                              fontWeight: FontWeight.bold,
-                                                            ),
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                                const SizedBox(height: 10),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  );
-                                },
-                              );
-                            },
-                      child: Center(
-                        child: Text(
-                          _hasWeighedIn ? 'Already done' : 'Weigh in',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                          ],
                         ),
-                      ),
-                    ),
-                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (!_isBillVoteOpen(bill)) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Voting is closed. This bill has passed third reading.',
+                  style: TextStyle(color: Colors.grey.shade700),
                 ),
               ],
-            ),
-          ),
-        ),
+              FilledButton.icon(
+                onPressed:
+                    _selectedRiding == null ||
+                        _hasWeighedIn ||
+                        !_isBillVoteOpen(bill)
+                    ? null
+                    : () => _showVoteSheet(bill),
+                icon: const Icon(Icons.how_to_vote_outlined),
+                label: Text(
+                  _hasWeighedIn
+                      ? 'Vote recorded'
+                      : _isBillVoteOpen(bill)
+                      ? 'Weigh in'
+                      : 'Voting closed',
+                ),
+              ),
+            ],
+          );
+        },
       ),
-    );
-  }
-
-  // Updated helper method to handle the visual selection logic
-  Widget _buildStanceButton(
-    String text, 
-    Color color, 
-    String? currentSelection, 
-    ValueChanged<String> onSelect, {
-    Color? borderColor,
-  }) {
-    bool isSelected = currentSelection == text;
-
-    return SizedBox(
-      width: 90,
-      height: 90,
-      child: OutlinedButton(
-        onPressed: () => onSelect(text),
-        style: OutlinedButton.styleFrom(
-          // Fills with the color if selected, otherwise transparent
-          backgroundColor: isSelected ? color : Colors.transparent,
-          // Text turns white if selected, otherwise matches the color
-          foregroundColor: isSelected ? Colors.white : color,
-          side: BorderSide(
-            color: isSelected ? color : (borderColor ?? color), 
-            width: 1.5,
-          ),
-          shape: const CircleBorder(),
-        ),
-        child: Text(
-          text,
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-        ),
-      ),
-    );
-  }
-
-  InputDecoration _inputDecoration(String label) {
-    return InputDecoration(
-      labelText: label,
-      labelStyle: TextStyle(color: Colors.grey.shade600, fontSize: 14),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide(color: Colors.grey.shade300),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: const BorderSide(color: Color(0xFFFF4D4D)),
-      ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
     );
   }
 }
