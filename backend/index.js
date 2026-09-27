@@ -671,6 +671,118 @@ app.get('/api/v2/ridings/:id', async (req, res) => {
 // MPs
 // --------------------------------------------------
 
+// Get all current MPs
+app.get('/api/v2/mps', async (req, res) => {
+    try {
+        // Find the newest Parliament/session stored in our database
+        const sessionResult = await pool.query(`
+            SELECT
+                parliament_number,
+                session_number
+            FROM capitoll_v2.bills
+            ORDER BY
+                parliament_number DESC,
+                session_number DESC
+            LIMIT 1
+        `);
+
+        if (sessionResult.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'No current Parliament/session found'
+            });
+        }
+
+        const {
+            parliament_number,
+            session_number
+        } = sessionResult.rows[0];
+
+        const parliamentKey = String(parliament_number);
+
+        const { rows } = await pool.query(
+            `
+            SELECT
+                m.person_id,
+
+                m.official_first_name,
+
+                m.official_last_name,
+
+                CONCAT_WS(
+                    ' ',
+                    m.official_first_name,
+                    m.official_last_name
+                ) AS name,
+
+                (
+                    SELECT entry->>'ridingName'
+                    FROM jsonb_array_elements(
+                        COALESCE(
+                            m.ridings_by_parliament -> ($1::text),
+                            '[]'::jsonb
+                        )
+                    ) AS entry
+                    WHERE
+                        (entry->>'sessionNumber')::int = $2
+                    LIMIT 1
+                ) AS riding_name,
+
+                (
+                    SELECT entry->>'caucusShortName'
+                    FROM jsonb_array_elements(
+                        COALESCE(
+                            m.parties_by_parliament -> ($1::text),
+                            '[]'::jsonb
+                        )
+                    ) AS entry
+                    WHERE
+                        (entry->>'sessionNumber')::int = $2
+                    LIMIT 1
+                ) AS party
+
+            FROM capitoll_v2.mps AS m
+
+            WHERE EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(
+                    COALESCE(
+                        m.ridings_by_parliament -> ($1::text),
+                        '[]'::jsonb
+                    )
+                ) AS entry
+                WHERE
+                    (entry->>'sessionNumber')::int = $2
+            )
+
+            ORDER BY
+                m.official_last_name,
+                m.official_first_name
+            `,
+            [
+                parliamentKey,
+                session_number
+            ]
+        );
+
+        res.json({
+            success: true,
+            parliament: parliament_number,
+            session: session_number,
+            count: rows.length,
+            mps: rows
+        });
+
+    } catch (error) {
+        console.error(error);
+
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get current MPs'
+        });
+    }
+});
+
 // Get one MP by Parliament Person ID
 app.get('/api/v2/mps/:personId', async (req, res) => {
     try {
