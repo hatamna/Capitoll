@@ -40,7 +40,7 @@ app.get('/test-db', async (req, res) => {
 app.get('/api/bills', async (req, res) => {
     try {
         const result = await pool.query(
-            'SELECT * FROM bills ORDER BY id'
+            'SELECT * FROM capitoll_v2.bills ORDER BY id'
         );
 
         res.json(result.rows);
