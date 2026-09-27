@@ -3,14 +3,27 @@ const VOTES_FEED_URL =
 
 const VOTE_XML_QUERY = `
     SELECT
-        (xpath('string(ParliamentNumber)', vote_xml))[1]::text AS parliament_number,
-        (xpath('string(SessionNumber)', vote_xml))[1]::text AS session_number,
-        (xpath('string(DecisionDivisionNumber)', vote_xml))[1]::text
+        (xpath('string(/Vote/ParliamentNumber)', vote_xml))[1]::text
+            AS parliament_number,
+
+        (xpath('string(/Vote/SessionNumber)', vote_xml))[1]::text
+            AS session_number,
+
+        (xpath('string(/Vote/DecisionDivisionNumber)', vote_xml))[1]::text
             AS decision_division_number,
-        (xpath('string(DecisionDivisionSubject)', vote_xml))[1]::text
+
+        (xpath('string(/Vote/DecisionDivisionSubject)', vote_xml))[1]::text
             AS decision_division_subject,
-        (xpath('string(BillNumberCode)', vote_xml))[1]::text AS bill_number_code
-    FROM unnest(xpath('/ArrayOfVote/Vote', XMLPARSE(DOCUMENT $1))) AS votes(vote_xml)
+
+        (xpath('string(/Vote/BillNumberCode)', vote_xml))[1]::text
+            AS bill_number_code
+
+    FROM unnest(
+        xpath(
+            '/ArrayOfVote/Vote',
+            XMLPARSE(DOCUMENT $1)
+        )
+    ) AS votes(vote_xml)
 `;
 
 async function fetchSessionVotes(pool, parliamentNumber, sessionNumber, fetchImpl) {
