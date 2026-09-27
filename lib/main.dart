@@ -106,32 +106,54 @@ class _MyHomePageState extends State<MyHomePage> {
           borderRadius: const BorderRadius.vertical(
             top: Radius.circular(24),
           ),
-          child: BottomNavigationBar(
-            elevation: 0,
-            backgroundColor: Colors.white,
-            currentIndex: _selectedIndex, 
-            onTap: _onItemTapped,
-            items: const <BottomNavigationBarItem>[
-              BottomNavigationBarItem(
-                icon: ImageIcon(
-                  AssetImage('assets/icons/ballot.png'),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              MediaQuery.removePadding(
+                context: context,
+                removeBottom: true,
+                child: BottomNavigationBar(
+                  elevation: 0,
+                  backgroundColor: Colors.white,
+                  currentIndex: _selectedIndex, 
+                  onTap: _onItemTapped,
+                  selectedItemColor: const Color.fromARGB(255, 243, 33, 33),
+                  items: const <BottomNavigationBarItem>[
+                    BottomNavigationBarItem(
+                      icon: ImageIcon(
+                        AssetImage('assets/icons/ballot.png'),
+                      ),
+                      label: 'Bills',
+                    ),
+                    BottomNavigationBarItem(
+                      icon: ImageIcon(
+                        AssetImage('assets/icons/manCircle.png'),
+                      ),
+                      label: 'My MP',
+                    ),
+                    BottomNavigationBarItem(
+                      icon: ImageIcon(
+                        AssetImage('assets/icons/personEdit.png'),
+                      ),
+                      label: 'Profile',
+                    ),
+                  ],
                 ),
-                label: 'Bills',
               ),
-              BottomNavigationBarItem(
-                icon: ImageIcon(
-                  AssetImage('assets/icons/manCircle.png'),
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 0.5, top: 0.5),
+                  child: Text(
+                    'Work in progress. Data may not be fully accurate.',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
                 ),
-                label: 'My MP',
-              ),
-              BottomNavigationBarItem(
-                icon: ImageIcon(
-                  AssetImage('assets/icons/personEdit.png'),
-                ),
-                label: 'Profile',
               ),
             ],
-            selectedItemColor: const Color.fromARGB(255, 243, 33, 33),
           ),
         ),
       ),

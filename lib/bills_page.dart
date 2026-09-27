@@ -77,7 +77,7 @@ class BillsPage extends StatelessWidget {
 
             PastVoteTile(
               billNum: "C-46",
-              billTitle: "Blah Blah Past Bill Blah Blah",
+              billTitle: "An Act to amend the Criminal Code (offences relating to conveyances) and to make consequential amendments to other Acts",
               voteStatus: VoteStatus.no,
               onTap: () {}
             ),
@@ -86,7 +86,7 @@ class BillsPage extends StatelessWidget {
 
             PastVoteTile(
               billNum: "C-99",
-              billTitle: "Blah Blah Past Bill Blah Blah Blah Blah",
+              billTitle: "An Act to amend the Citizenship Act",
               voteStatus: VoteStatus.no,
               onTap: () {}
             ),
@@ -94,7 +94,7 @@ class BillsPage extends StatelessWidget {
 
             PastVoteTile(
               billNum: "C-121",
-              billTitle: "Blah Blah Past Bill Poop Poop Blah Blah Blah Blah",
+              billTitle: "Eldorado Nuclear Limited Reorganization and Divestiture Act",
               voteStatus: VoteStatus.no,
               onTap: () {}
             ),
