@@ -8,7 +8,7 @@ const {
     initializeBillRidingVoteEntries
 } = require('./vote_participant_importer');
 
-const INITIAL_IMPORT_NAME = 'capitoll_v2_composite_session_maps';
+const INITIAL_IMPORT_NAME = 'capitoll_v2_riding_votes_with_mp_ids';
 
 async function loadInitialData() {
     const billImport = await importRelevantBills(pool);

@@ -84,24 +84,16 @@ async function getRidingComplianceScore(db, ridingName) {
             continue;
         }
 
-        const latestMpVote = mpVotes.reduce((latest, vote) => {
-            const divisionNumber = Number(vote.decision_division_number);
-            if (!['Y', 'N', 'A'].includes(vote.choice) ||
-                !Number.isInteger(divisionNumber)) {
-                return latest;
-            }
-
-            return !latest || divisionNumber > latest.divisionNumber
-                ? { choice: vote.choice, divisionNumber }
-                : latest;
-        }, null);
-
-        if (!latestMpVote) {
+        const latestMpVote = mpVotes.at(-1);
+        const latestMpChoice = typeof latestMpVote === 'string'
+            ? latestMpVote
+            : latestMpVote?.choice;
+        if (!['Y', 'N', 'A'].includes(latestMpChoice)) {
             continue;
         }
 
         comparedBills += 1;
-        if (communityChoices[0] === latestMpVote.choice) {
+        if (communityChoices[0] === latestMpChoice) {
             alignedBills += 1;
         }
     }

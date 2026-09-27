@@ -832,6 +832,23 @@ app.get('/api/v2/mp-photo', async (req, res) => {
 // AUTOMATIC PARLIAMENT DATA SYNC
 // --------------------------------------------------
 
+async function saveVoteImportCursor(parliamentNumber, sessionNumber, divisionNumber) {
+    await pool.query(`
+        INSERT INTO capitoll_v2.vote_import_state AS stored (
+            parliament_number,
+            session_number,
+            last_decision_division_number
+        )
+        VALUES ($1, $2, $3)
+        ON CONFLICT (parliament_number, session_number) DO UPDATE SET
+            last_decision_division_number = GREATEST(
+                stored.last_decision_division_number,
+                EXCLUDED.last_decision_division_number
+            ),
+            updated_at = NOW()
+    `, [parliamentNumber, sessionNumber, divisionNumber]);
+}
+
 async function syncCurrentData() {
     console.log('');
     console.log('------------------------------------------');
@@ -953,6 +970,11 @@ async function syncCurrentData() {
     let voteParticipantCount = 0;
     await queue.drain(async decision => {
         voteParticipantCount += await importVoteParticipants(pool, decision);
+        await saveVoteImportCursor(
+            parliamentNumber,
+            sessionNumber,
+            decision.decisionDivisionNumber
+        );
     });
 
     console.log(
@@ -960,23 +982,10 @@ async function syncCurrentData() {
     );
 
 
-    await pool.query(
-        `
-        INSERT INTO capitoll_v2.vote_import_state (
-            parliament_number,
-            session_number,
-            last_decision_division_number
-        )
-        VALUES ($1, $2, $3)
-        ON CONFLICT (parliament_number, session_number) DO UPDATE SET
-            last_decision_division_number = EXCLUDED.last_decision_division_number,
-            updated_at = NOW()
-        `,
-        [
-            parliamentNumber,
-            sessionNumber,
-            voteScan.latestDivisionNumber
-        ]
+    await saveVoteImportCursor(
+        parliamentNumber,
+        sessionNumber,
+        voteScan.latestDivisionNumber
     );
 
 

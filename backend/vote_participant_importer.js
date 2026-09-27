@@ -92,7 +92,7 @@ function mapVotesByRiding(participants, mps, decision) {
         if (ridingName) {
             votesByRiding[ridingName] ??= [];
             votesByRiding[ridingName].push({
-                decision_division_number: decision.decisionDivisionNumber,
+                person_id: participant.personId,
                 choice: participant.choice
             });
         }
@@ -108,21 +108,7 @@ function mergeVotesByRiding(existingVotesByRiding, newVotesByRiding) {
         const existingVotes = Array.isArray(merged[ridingName])
             ? merged[ridingName]
             : [];
-        const votesByDivision = new Map(
-            existingVotes.map(vote => [
-                vote.decision_division_number,
-                vote
-            ])
-        );
-
-        for (const vote of newVotes) {
-            votesByDivision.set(vote.decision_division_number, vote);
-        }
-
-        merged[ridingName] = [...votesByDivision.values()]
-            .sort((left, right) =>
-                left.decision_division_number - right.decision_division_number
-            );
+        merged[ridingName] = [...existingVotes, ...newVotes];
     }
 
     return merged;

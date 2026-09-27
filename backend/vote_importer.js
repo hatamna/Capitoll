@@ -72,6 +72,7 @@ function enqueueBillVotes(
     }
 
     const imported = new Set();
+    const decisions = [];
 
     for (const vote of votes) {
         const voteParliamentNumber = Number(vote.parliament_number);
@@ -97,7 +98,7 @@ function enqueueBillVotes(
             continue;
         }
 
-        queue.enqueue({
+        decisions.push({
             parliamentNumber: voteParliamentNumber,
             sessionNumber: voteSessionNumber,
             decisionDivisionNumber,
@@ -105,6 +106,11 @@ function enqueueBillVotes(
         });
         imported.add(key);
     }
+
+    decisions.sort((left, right) =>
+        left.decisionDivisionNumber - right.decisionDivisionNumber
+    );
+    decisions.forEach(decision => queue.enqueue(decision));
 
     return imported.size;
 }
