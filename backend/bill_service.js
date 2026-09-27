@@ -14,7 +14,15 @@ async function getBillsAwaitingThirdReading(pool) {
         WHERE passed_house_third_reading_at IS NULL
           AND status ILIKE '%third reading%'
           AND status ILIKE '%house of commons%'
-        ORDER BY parliament_number DESC, session_number DESC, number_code
+          AND (parliament_number, session_number) = (
+              SELECT
+                  parliament_number,
+                  session_number
+              FROM capitoll_v2.bills
+              ORDER BY parliament_number DESC, session_number DESC
+              LIMIT 1
+          )
+        ORDER BY number_code
     `);
 
     return rows;

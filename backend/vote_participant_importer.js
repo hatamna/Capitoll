@@ -2,17 +2,29 @@ const VOTE_PARTICIPANTS_URL = 'https://www.ourcommons.ca/Members/en/votes';
 
 const VOTE_PARTICIPANTS_XML_QUERY = `
     SELECT
-        (xpath('string(ParliamentNumber)', participant_xml))[1]::text
+        (xpath('string(/VoteParticipant/ParliamentNumber)', participant_xml))[1]::text
             AS parliament_number,
-        (xpath('string(SessionNumber)', participant_xml))[1]::text
+
+        (xpath('string(/VoteParticipant/SessionNumber)', participant_xml))[1]::text
             AS session_number,
-        (xpath('string(DecisionDivisionNumber)', participant_xml))[1]::text
+
+        (xpath('string(/VoteParticipant/DecisionDivisionNumber)', participant_xml))[1]::text
             AS decision_division_number,
-        (xpath('string(PersonId)', participant_xml))[1]::text AS person_id,
-        (xpath('string(IsVoteYea)', participant_xml))[1]::text AS is_vote_yea,
-        (xpath('string(IsVotePaired)', participant_xml))[1]::text AS is_vote_paired
+
+        (xpath('string(/VoteParticipant/PersonId)', participant_xml))[1]::text
+            AS person_id,
+
+        (xpath('string(/VoteParticipant/IsVoteYea)', participant_xml))[1]::text
+            AS is_vote_yea,
+
+        (xpath('string(/VoteParticipant/IsVotePaired)', participant_xml))[1]::text
+            AS is_vote_paired
+
     FROM unnest(
-        xpath('/ArrayOfVoteParticipant/VoteParticipant', XMLPARSE(DOCUMENT $1))
+        xpath(
+            '/ArrayOfVoteParticipant/VoteParticipant',
+            XMLPARSE(DOCUMENT $1)
+        )
     ) AS participants(participant_xml)
 `;
 
