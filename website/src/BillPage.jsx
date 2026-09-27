@@ -10,6 +10,11 @@ import './App.css';
 import logo from './assets/capitollLogo.png';
 
 
+const API_URL =
+    import.meta.env.VITE_API_URL ||
+    'http://localhost:3000';
+
+
 function BillPage() {
     const { billCode } =
         useParams();
@@ -28,84 +33,6 @@ function BillPage() {
         useState('');
 
 
-    // =========================================
-    // CLEAN URL
-    // =========================================
-
-    const parseBillUrl = (
-        value
-    ) => {
-
-        let decoded =
-            decodeURIComponent(
-                value
-            );
-
-
-        // If somehow duplicated:
-        // c-10(45-1)(45-1)
-        // becomes:
-        // c-10(45-1)
-
-        decoded =
-            decoded.replace(
-                /(\(\d+-\d+\))\1+$/,
-                '$1'
-            );
-
-
-        const match =
-            decoded.match(
-                /^(.+?)\((\d+)-(\d+)\)$/
-            );
-
-
-        if (match) {
-
-            return {
-
-                code:
-                    match[1]
-                        .toLowerCase()
-                        .trim(),
-
-                parliamentNumber:
-                    Number(
-                        match[2]
-                    ),
-
-                sessionNumber:
-                    Number(
-                        match[3]
-                    )
-
-            };
-
-        }
-
-
-        return {
-
-            code:
-                decoded
-                    .toLowerCase()
-                    .trim(),
-
-            parliamentNumber:
-                null,
-
-            sessionNumber:
-                null
-
-        };
-
-    };
-
-
-    // =========================================
-    // LOAD BILL
-    // =========================================
-
     useEffect(() => {
 
         const loadBill = async () => {
@@ -116,15 +43,22 @@ function BillPage() {
                 setError('');
 
 
-                const parsed =
-                    parseBillUrl(
+                const decodedBillCode =
+                    decodeURIComponent(
                         billCode
-                    );
+                    )
+                        .toLowerCase()
+                        .replace(
+                            /(\(\d+-\d+\))\1+$/,
+                            '$1'
+                        );
 
 
                 const response =
                     await fetch(
-                        'http://localhost:3000/api/v2/bills'
+                        `${API_URL}/api/v2/bills/${encodeURIComponent(
+                            decodedBillCode
+                        )}`
                     );
 
 
@@ -136,79 +70,13 @@ function BillPage() {
 
                     throw new Error(
                         data.error ||
-                        'Failed to load bills'
+                        'Failed to load bill'
                     );
 
                 }
 
 
-                const bills =
-                    Array.isArray(data)
-                        ? data
-                        : data.bills || [];
-
-
-                const foundBill =
-                    bills.find((item) => {
-
-                        const itemCode =
-                            String(
-                                item.number_code ||
-                                item.bill_code ||
-                                ''
-                            )
-                                .replace(
-                                    /\(\d+-\d+\)$/g,
-                                    ''
-                                )
-                                .trim()
-                                .toLowerCase();
-
-
-                        const codeMatches =
-                            itemCode ===
-                            parsed.code;
-
-
-                        const parliamentMatches =
-                            parsed.parliamentNumber
-                                ? Number(
-                                    item.parliament_number
-                                ) ===
-                                parsed.parliamentNumber
-                                : true;
-
-
-                        const sessionMatches =
-                            parsed.sessionNumber
-                                ? Number(
-                                    item.session_number
-                                ) ===
-                                parsed.sessionNumber
-                                : true;
-
-
-                        return (
-                            codeMatches &&
-                            parliamentMatches &&
-                            sessionMatches
-                        );
-
-                    });
-
-
-                if (!foundBill) {
-
-                    throw new Error(
-                        'Bill not found'
-                    );
-
-                }
-
-
-                setBill(
-                    foundBill
-                );
+                setBill(data);
 
             } catch (error) {
 
@@ -249,17 +117,6 @@ function BillPage() {
                         alt="Capitoll"
                         className="detailLogo"
                     />
-
-
-                    <button
-                        type="button"
-                        className="detailBackButton"
-                        onClick={() =>
-                            navigate('/')
-                        }
-                    >
-                        ← Back to search
-                    </button>
 
                 </header>
 
@@ -304,6 +161,7 @@ function BillPage() {
                     <button
                         type="button"
                         className="detailBackButton"
+
                         onClick={() =>
                             navigate('/')
                         }
@@ -375,6 +233,7 @@ function BillPage() {
                 <button
                     type="button"
                     className="detailBackButton"
+
                     onClick={() =>
                         navigate('/')
                     }
@@ -400,10 +259,12 @@ function BillPage() {
 
 
                     <h2 className="billLongTitle">
+
                         {
                             bill.long_title_en ||
                             'Title unavailable'
                         }
+
                     </h2>
 
 
@@ -411,6 +272,7 @@ function BillPage() {
 
                         <BillDetail
                             label="Status"
+
                             value={
                                 bill.status ||
                                 'Unknown'
@@ -420,6 +282,7 @@ function BillPage() {
 
                         <BillDetail
                             label="Parliament"
+
                             value={
                                 bill.parliament_number ||
                                 'Unknown'
@@ -429,6 +292,7 @@ function BillPage() {
 
                         <BillDetail
                             label="Session"
+
                             value={
                                 bill.session_number ||
                                 'Unknown'
@@ -438,6 +302,7 @@ function BillPage() {
 
                         <BillDetail
                             label="Third Reading"
+
                             value={
                                 bill.passed_house_third_reading_at
 
@@ -464,11 +329,15 @@ function BillPage() {
 
 
                         <p className="billDescription">
-                            This page displays the parliamentary
-                            information currently stored in Capitoll.
-                            Representative voting records and community
-                            feedback can be displayed here alongside
-                            the bill as that data is connected.
+
+                            This page displays parliamentary
+                            information currently stored in
+                            Capitoll. Representative voting
+                            records and community feedback
+                            can be displayed alongside the
+                            bill as that information becomes
+                            available.
+
                         </p>
 
                     </section>

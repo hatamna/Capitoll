@@ -10,6 +10,11 @@ import './App.css';
 import logo from './assets/capitollLogo.png';
 
 
+const API_URL =
+    import.meta.env.VITE_API_URL ||
+    'http://localhost:3000';
+
+
 function getLatestValue(
     history,
     field
@@ -60,9 +65,7 @@ function getLatestValue(
             of sortedSessions
         ) {
 
-            if (
-                session?.[field]
-            ) {
+            if (session?.[field]) {
                 return session[field];
             }
 
@@ -75,193 +78,18 @@ function getLatestValue(
 }
 
 
-function cleanBillCode(value) {
-    return String(value || '')
-        .replace(
-            /\(\d+-\d+\)$/g,
-            ''
-        )
-        .trim();
-}
-
-
-function normalizeVote(value) {
-    const vote =
-        String(value || '')
-            .trim()
-            .toLowerCase();
-
-
-    if (
-        vote === 'yes' ||
-        vote === 'yea' ||
-        vote === 'for'
-    ) {
-        return 'YES';
-    }
-
-
-    if (
-        vote === 'no' ||
-        vote === 'nay' ||
-        vote === 'against'
-    ) {
-        return 'NO';
-    }
-
-
-    if (
-        vote === 'abstain' ||
-        vote === 'abstained'
-    ) {
-        return 'ABSTAIN';
-    }
-
-
-    if (
-        vote === 'paired'
-    ) {
-        return 'PAIRED';
-    }
-
-
-    if (!vote) {
-        return '';
-    }
-
-
-    return vote.toUpperCase();
-}
-
-
 function getMpVote(item) {
-    return normalizeVote(
-        item.mp_vote ??
-        item.vote ??
-        item.vote_value ??
-        item.position ??
-        item.decision ??
-        item.participant_vote ??
-        item.vote_decision
-    );
-}
-
-
-function getRidingMajority(item) {
-    const explicit =
-        item.riding_majority ??
-        item.community_majority ??
-        item.constituent_majority ??
-        item.majority_vote ??
-        item.riding_result;
-
-
-    if (explicit) {
-        return normalizeVote(explicit);
-    }
-
-
-    const yes =
-        Number(
-            item.yes_count ??
-            item.yea_count ??
-            item.yes ??
-            item.yea ??
-            0
-        );
-
-
-    const no =
-        Number(
-            item.no_count ??
-            item.nay_count ??
-            item.no ??
-            item.nay ??
-            0
-        );
-
-
-    const abstain =
-        Number(
-            item.abstain_count ??
-            item.abstained_count ??
-            item.abstain ??
-            0
-        );
-
-
-    const max =
-        Math.max(
-            yes,
-            no,
-            abstain
-        );
-
-
-    if (max <= 0) {
-        return '';
-    }
-
-
-    const winners = [];
-
-
-    if (yes === max) {
-        winners.push('YES');
-    }
-
-    if (no === max) {
-        winners.push('NO');
-    }
-
-    if (abstain === max) {
-        winners.push('ABSTAIN');
-    }
-
-
-    if (winners.length !== 1) {
-        return '';
-    }
-
-
-    return winners[0];
-}
-
-
-function getBillCode(item) {
-    return cleanBillCode(
-        item.number_code ??
-        item.bill_code ??
-        item.bill_number ??
-        item.code
-    );
-}
-
-
-function getBillTitle(item) {
     return (
-        item.long_title_en ??
-        item.title ??
-        item.bill_title ??
-        item.short_title_en ??
-        'Title unavailable'
-    );
-}
-
-
-function getParliament(item) {
-    return (
-        item.parliament_number ??
-        item.parliament ??
+        item.mp_vote ||
+        item.vote ||
         ''
     );
 }
 
 
-function getSession(item) {
+function getRidingMajority(item) {
     return (
-        item.session_number ??
-        item.session ??
+        item.riding_majority ||
         ''
     );
 }
@@ -269,38 +97,51 @@ function getSession(item) {
 
 function getBillDisplayCode(item) {
     const baseCode =
-        getBillCode(item);
-
-
-    const parliament =
-        getParliament(item);
-
-
-    const session =
-        getSession(item);
+        String(
+            item.number_code ||
+            item.bill_code ||
+            'Bill'
+        )
+            .replace(
+                /\(\d+-\d+\)$/g,
+                ''
+            )
+            .trim();
 
 
     if (
-        baseCode &&
-        parliament &&
-        session
+        item.parliament_number &&
+        item.session_number
     ) {
         return (
-            `${baseCode} (${parliament}-${session})`
+            `${baseCode} (${item.parliament_number}-${item.session_number})`
         );
     }
 
 
-    return (
-        baseCode ||
-        'Bill'
-    );
+    return baseCode;
 }
 
 
 function buildBillUrl(item) {
+    if (item.bill_code) {
+        return (
+            `/bills/${encodeURIComponent(
+                item.bill_code.toLowerCase()
+            )}`
+        );
+    }
+
+
     const baseCode =
-        getBillCode(item);
+        String(
+            item.number_code || ''
+        )
+            .replace(
+                /\(\d+-\d+\)$/g,
+                ''
+            )
+            .trim();
 
 
     if (!baseCode) {
@@ -308,19 +149,11 @@ function buildBillUrl(item) {
     }
 
 
-    const parliament =
-        getParliament(item);
-
-
-    const session =
-        getSession(item);
-
-
     const urlCode =
-        parliament &&
-            session
+        item.parliament_number &&
+            item.session_number
 
-            ? `${baseCode}(${parliament}-${session})`
+            ? `${baseCode}(${item.parliament_number}-${item.session_number})`
 
             : baseCode;
 
@@ -330,44 +163,6 @@ function buildBillUrl(item) {
             urlCode.toLowerCase()
         )}`
     );
-}
-
-
-function extractBillActivity(data) {
-    if (!data) {
-        return [];
-    }
-
-
-    if (Array.isArray(data)) {
-        return data;
-    }
-
-
-    const possibleArrays = [
-        data.bills,
-        data.bill_activity,
-        data.billActivity,
-        data.bill_votes,
-        data.billVotes,
-        data.votes,
-        data.activity
-    ];
-
-
-    for (
-        const possible
-        of possibleArrays
-    ) {
-
-        if (Array.isArray(possible)) {
-            return possible;
-        }
-
-    }
-
-
-    return [];
 }
 
 
@@ -392,9 +187,9 @@ function MpPage() {
 
 
     const [
-        loadingBills,
-        setLoadingBills
-    ] = useState(true);
+        comparison,
+        setComparison
+    ] = useState(null);
 
 
     const [loading, setLoading] =
@@ -411,17 +206,16 @@ function MpPage() {
             try {
 
                 setLoading(true);
-                setLoadingBills(true);
                 setError('');
 
 
                 // =====================================
-                // MP
+                // MP DATA
                 // =====================================
 
                 const response =
                     await fetch(
-                        `http://localhost:3000/api/v2/mps/${personId}`
+                        `${API_URL}/api/v2/mps/${personId}`
                     );
 
 
@@ -430,12 +224,10 @@ function MpPage() {
 
 
                 if (!response.ok) {
-
                     throw new Error(
                         data.error ||
                         'Failed to load MP'
                     );
-
                 }
 
 
@@ -443,7 +235,7 @@ function MpPage() {
 
 
                 // =====================================
-                // PHOTO
+                // RIDING
                 // =====================================
 
                 const ridingName =
@@ -453,13 +245,17 @@ function MpPage() {
                     );
 
 
+                // =====================================
+                // PHOTO
+                // =====================================
+
                 if (ridingName) {
 
                     try {
 
                         const photoResponse =
                             await fetch(
-                                `http://localhost:3000/api/v2/mp-photo?riding_name=${encodeURIComponent(
+                                `${API_URL}/api/v2/mp-photo?riding_name=${encodeURIComponent(
                                     ridingName
                                 )}`
                             );
@@ -486,9 +282,7 @@ function MpPage() {
 
                         }
 
-                    } catch (
-                    photoError
-                    ) {
+                    } catch (photoError) {
 
                         console.error(
                             'Failed to load MP photo:',
@@ -502,62 +296,57 @@ function MpPage() {
 
                 // =====================================
                 // BILL ACTIVITY
-                //
-                // First checks if the MP endpoint
-                // already returned bill data.
-                //
-                // If not, tries:
-                // /api/v2/mps/:personId/bills
                 // =====================================
 
-                let activity =
-                    extractBillActivity(
-                        data
-                    );
+                try {
+
+                    const billResponse =
+                        await fetch(
+                            `${API_URL}/api/v2/mps/${personId}/bills`
+                        );
 
 
-                if (
-                    activity.length === 0
-                ) {
-
-                    try {
-
-                        const billResponse =
-                            await fetch(
-                                `http://localhost:3000/api/v2/mps/${personId}/bills`
-                            );
+                    const billData =
+                        await billResponse.json();
 
 
-                        if (billResponse.ok) {
+                    if (billResponse.ok) {
 
-                            const billData =
-                                await billResponse.json();
+                        setBillActivity(
+                            Array.isArray(
+                                billData.bills
+                            )
+                                ? billData.bills
+                                : []
+                        );
 
 
-                            activity =
-                                extractBillActivity(
-                                    billData
-                                );
+                        setComparison(
+                            billData.comparison ||
+                            null
+                        );
 
-                        }
-
-                    } catch (
-                    billError
-                    ) {
+                    } else {
 
                         console.error(
-                            'Could not load MP bill activity:',
-                            billError
+                            'Bill activity API error:',
+                            billData
                         );
+
+                        setBillActivity([]);
 
                     }
 
+                } catch (billError) {
+
+                    console.error(
+                        'Could not load bill activity:',
+                        billError
+                    );
+
+                    setBillActivity([]);
+
                 }
-
-
-                setBillActivity(
-                    activity
-                );
 
 
             } catch (error) {
@@ -577,7 +366,6 @@ function MpPage() {
             } finally {
 
                 setLoading(false);
-                setLoadingBills(false);
 
             }
 
@@ -588,10 +376,6 @@ function MpPage() {
 
     }, [personId]);
 
-
-    // =========================================
-    // LOADING
-    // =========================================
 
     if (loading) {
 
@@ -606,29 +390,15 @@ function MpPage() {
                         className="detailLogo"
                     />
 
-
-                    <button
-                        type="button"
-                        className="detailBackButton"
-
-                        onClick={() =>
-                            navigate('/')
-                        }
-                    >
-                        ← Back to search
-                    </button>
-
                 </header>
 
 
                 <main className="detailMain">
 
                     <section className="detailCard">
-
                         <h2>
                             Loading MP...
                         </h2>
-
                     </section>
 
                 </main>
@@ -638,13 +408,8 @@ function MpPage() {
 
             </div>
         );
-
     }
 
-
-    // =========================================
-    // ERROR
-    // =========================================
 
     if (
         error ||
@@ -698,13 +463,8 @@ function MpPage() {
 
             </div>
         );
-
     }
 
-
-    // =========================================
-    // MP INFO
-    // =========================================
 
     const fullName =
         `${mp.official_first_name || ''
@@ -727,54 +487,23 @@ function MpPage() {
         );
 
 
-    // =========================================
-    // RIDING COMPARISON
-    // =========================================
-
-    const comparisonRows =
-        billActivity
-            .map((item) => {
-
-                const mpVote =
-                    getMpVote(item);
-
-
-                const ridingMajority =
-                    getRidingMajority(
-                        item
-                    );
-
-
-                return {
-                    item,
-                    mpVote,
-                    ridingMajority
-                };
-
-            })
-
-            .filter((row) =>
-                row.mpVote &&
-                row.ridingMajority
-            );
-
-
     const sameCount =
-        comparisonRows.filter(
-            (row) =>
-                row.mpVote ===
-                row.ridingMajority
-        ).length;
+        comparison
+            ?.same_as_riding_majority ||
+        0;
+
+
+    const comparableCount =
+        comparison
+            ?.comparable_bills ||
+        0;
 
 
     const differentCount =
-        comparisonRows.length -
-        sameCount;
+        comparison
+            ?.different_from_riding_majority ||
+        0;
 
-
-    // =========================================
-    // OPEN BILL
-    // =========================================
 
     const handleBillClick = (
         item
@@ -792,17 +521,11 @@ function MpPage() {
 
 
         navigate(url);
-
     };
 
 
     return (
         <div className="page">
-
-
-            {/* =====================================
-          HEADER
-      ===================================== */}
 
             <header className="detailHeader">
 
@@ -827,24 +550,13 @@ function MpPage() {
             </header>
 
 
-            {/* =====================================
-          SCROLLABLE MAIN
-      ===================================== */}
-
             <main className="detailMain">
-
 
                 <section className="detailCard mpFullCard">
 
 
-                    {/* =================================
-              TOP PROFILE
-          ================================= */}
-
                     <div className="mpTopGrid">
 
-
-                        {/* MP INFO */}
 
                         <div className="mpProfileInfo">
 
@@ -854,12 +566,10 @@ function MpPage() {
 
 
                             <h1 className="mpProfileName">
-
                                 {
                                     fullName ||
                                     'Unknown MP'
                                 }
-
                             </h1>
 
 
@@ -925,21 +635,16 @@ function MpPage() {
                         </div>
 
 
-                        {/* =================================
-                RIDING VOTE COMPARISON
-            ================================= */}
-
                         <div className="comparisonColumn">
 
                             <p className="comparisonTitle">
-                                RIDING VOTE
-                                COMPARISON
+                                RIDING VOTE COMPARISON
                             </p>
 
 
                             <div className="comparisonBox">
 
-                                {comparisonRows.length > 0 ? (
+                                {comparableCount > 0 ? (
 
                                     <>
 
@@ -948,17 +653,14 @@ function MpPage() {
                                             {sameCount}
 
                                             <span>
-                                                /{
-                                                    comparisonRows.length
-                                                }
+                                                /{comparableCount}
                                             </span>
 
                                         </div>
 
 
                                         <p className="comparisonMainLabel">
-                                            same as riding
-                                            majority
+                                            same as riding majority
                                         </p>
 
 
@@ -983,9 +685,7 @@ function MpPage() {
                                             <div>
 
                                                 <strong>
-                                                    {
-                                                        differentCount
-                                                    }
+                                                    {differentCount}
                                                 </strong>
 
                                                 <span>
@@ -1027,10 +727,6 @@ function MpPage() {
                         </div>
 
 
-                        {/* =================================
-                MP PHOTO
-            ================================= */}
-
                         <div className="mpPhotoColumn">
 
                             <div className="mpPhotoFrame">
@@ -1055,13 +751,8 @@ function MpPage() {
 
                         </div>
 
-
                     </div>
 
-
-                    {/* =================================
-              BILL ACTIVITY
-          ================================= */}
 
                     <div className="mpSectionDivider" />
 
@@ -1084,10 +775,7 @@ function MpPage() {
 
                                 <p>
                                     Recorded bill decisions
-                                    associated with {
-                                        fullName ||
-                                        'this MP'
-                                    }.
+                                    associated with {fullName}.
                                 </p>
 
                             </div>
@@ -1095,30 +783,20 @@ function MpPage() {
 
                             <div className="billCountPill">
 
-                                {
-                                    billActivity.length
-                                }
+                                {billActivity.length}
 
                                 {' '}
 
-                                {
-                                    billActivity.length === 1
-                                        ? 'bill'
-                                        : 'bills'
-                                }
+                                {billActivity.length === 1
+                                    ? 'bill'
+                                    : 'bills'}
 
                             </div>
 
                         </div>
 
 
-                        {loadingBills ? (
-
-                            <div className="billEmptyState">
-                                Loading bill activity...
-                            </div>
-
-                        ) : billActivity.length > 0 ? (
+                        {billActivity.length > 0 ? (
 
                             <div className="mpBillList">
 
@@ -1134,12 +812,6 @@ function MpPage() {
                                             );
 
 
-                                        const title =
-                                            getBillTitle(
-                                                item
-                                            );
-
-
                                         const mpVote =
                                             getMpVote(
                                                 item
@@ -1150,17 +822,6 @@ function MpPage() {
                                             getRidingMajority(
                                                 item
                                             );
-
-
-                                        const comparable =
-                                            mpVote &&
-                                            ridingMajority;
-
-
-                                        const same =
-                                            comparable &&
-                                            mpVote ===
-                                            ridingMajority;
 
 
                                         return (
@@ -1211,9 +872,7 @@ function MpPage() {
                                                                     }`
                                                                 }
                                                             >
-                                                                MP: {
-                                                                    mpVote
-                                                                }
+                                                                MP: {mpVote}
                                                             </span>
 
                                                         )}
@@ -1222,7 +881,12 @@ function MpPage() {
 
 
                                                     <p className="mpBillTitle">
-                                                        {title}
+
+                                                        {
+                                                            item.long_title_en ||
+                                                            'Title unavailable'
+                                                        }
+
                                                     </p>
 
 
@@ -1241,20 +905,19 @@ function MpPage() {
                                                             </span>
 
 
-                                                            {comparable && (
+                                                            {item.majority_matches_mp === true && (
 
-                                                                <span
-                                                                    className={
-                                                                        same
-                                                                            ? 'comparisonSame'
-                                                                            : 'comparisonDifferent'
-                                                                    }
-                                                                >
+                                                                <span className="comparisonSame">
+                                                                    Same recorded position
+                                                                </span>
 
-                                                                    {same
-                                                                        ? 'Same recorded position'
-                                                                        : 'Different recorded position'}
+                                                            )}
 
+
+                                                            {item.majority_matches_mp === false && (
+
+                                                                <span className="comparisonDifferent">
+                                                                    Different recorded position
                                                                 </span>
 
                                                             )}
@@ -1284,16 +947,14 @@ function MpPage() {
                             <div className="billEmptyState">
 
                                 <strong>
-                                    No recorded bill activity
-                                    available yet.
+                                    No recorded bill activity available yet.
                                 </strong>
 
 
                                 <p>
-                                    Capitoll will show bill
-                                    decisions here when vote
-                                    records are available for
-                                    this MP.
+                                    Capitoll will show bill decisions
+                                    here when vote records are available
+                                    for this MP.
                                 </p>
 
                             </div>
@@ -1301,7 +962,6 @@ function MpPage() {
                         )}
 
                     </section>
-
 
                 </section>
 
@@ -1316,7 +976,6 @@ function MpPage() {
 
 
 function SharedFooter() {
-
     return (
         <footer className="footer">
 
@@ -1349,14 +1008,10 @@ function SharedFooter() {
 
 
                 <p className="footerNotice">
-
-                    Parliamentary, riding, and MP
-                    data is drawn from public sources.
-                    Capitoll aims to keep information
-                    current, but accuracy,
-                    completeness, and availability
-                    are not guaranteed.
-
+                    Parliamentary, riding, and MP data is drawn
+                    from public sources. Capitoll aims to keep
+                    information current, but accuracy,
+                    completeness, and availability are not guaranteed.
                 </p>
 
             </div>
@@ -1368,7 +1023,6 @@ function SharedFooter() {
 
         </footer>
     );
-
 }
 
 
