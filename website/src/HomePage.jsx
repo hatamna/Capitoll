@@ -5,6 +5,11 @@ import './App.css';
 import logo from './assets/capitollLogo.png';
 
 
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  'http://localhost:3000';
+
+
 function HomePage() {
   const navigate = useNavigate();
 
@@ -20,7 +25,7 @@ function HomePage() {
 
 
   // =========================================
-  // LOAD DATA
+  // LOAD MPs + BILLS
   // =========================================
 
   useEffect(() => {
@@ -34,13 +39,14 @@ function HomePage() {
           billResponse
         ] = await Promise.all([
           fetch(
-            'http://localhost:3000/api/v2/mps'
+            `${API_URL}/api/v2/mps`
           ),
 
           fetch(
-            'http://localhost:3000/api/v2/bills'
+            `${API_URL}/api/v2/bills`
           )
         ]);
+
 
         const mpData =
           await mpResponse.json();
@@ -115,12 +121,10 @@ function HomePage() {
     searchQuery
   ) => {
 
-    if (
-      !text ||
-      !searchQuery
-    ) {
+    if (!text || !searchQuery) {
       return false;
     }
+
 
     return text
       .toLowerCase()
@@ -152,26 +156,26 @@ function HomePage() {
       return 0;
     }
 
+
     const name =
-      mp.name
-        ?.toLowerCase() || '';
+      mp.name?.toLowerCase() || '';
 
     const riding =
-      mp.riding_name
-        ?.toLowerCase() || '';
+      mp.riding_name?.toLowerCase() || '';
 
     const party =
-      mp.party
-        ?.toLowerCase() || '';
+      mp.party?.toLowerCase() || '';
 
 
     if (name === query) {
       return 120;
     }
 
+
     if (name.startsWith(query)) {
       return 110;
     }
+
 
     if (
       startsWithWord(
@@ -182,13 +186,16 @@ function HomePage() {
       return 100;
     }
 
+
     if (riding === query) {
       return 95;
     }
 
+
     if (riding.startsWith(query)) {
       return 90;
     }
+
 
     if (
       startsWithWord(
@@ -199,21 +206,26 @@ function HomePage() {
       return 80;
     }
 
+
     if (name.includes(query)) {
       return 70;
     }
+
 
     if (riding.includes(query)) {
       return 60;
     }
 
+
     if (party.startsWith(query)) {
       return 20;
     }
 
+
     if (party.includes(query)) {
       return 10;
     }
+
 
     return 0;
   };
@@ -222,6 +234,7 @@ function HomePage() {
   const filteredMps = mps
     .map((mp) => ({
       ...mp,
+
       searchScore:
         getMpSearchScore(mp)
     }))
@@ -242,12 +255,12 @@ function HomePage() {
         );
       }
 
+
       return (
         a.name || ''
       ).localeCompare(
         b.name || ''
       );
-
     });
 
 
@@ -263,7 +276,6 @@ function HomePage() {
         )
 
         .map((mp) => [
-
           mp.riding_name,
 
           {
@@ -279,7 +291,6 @@ function HomePage() {
             party:
               mp.party
           }
-
         ])
     ).values()
   );
@@ -293,6 +304,7 @@ function HomePage() {
       return 0;
     }
 
+
     const name =
       riding.riding_name
         ?.toLowerCase() || '';
@@ -302,9 +314,11 @@ function HomePage() {
       return 120;
     }
 
+
     if (name.startsWith(query)) {
       return 110;
     }
+
 
     if (
       startsWithWord(
@@ -315,9 +329,11 @@ function HomePage() {
       return 100;
     }
 
+
     if (name.includes(query)) {
       return 60;
     }
+
 
     return 0;
   };
@@ -349,12 +365,12 @@ function HomePage() {
         );
       }
 
+
       return (
         a.riding_name || ''
       ).localeCompare(
         b.riding_name || ''
       );
-
     });
 
 
@@ -511,16 +527,7 @@ function HomePage() {
       }
 
 
-      return (
-        a.number_code ||
-        a.bill_code ||
-        ''
-      ).localeCompare(
-        b.number_code ||
-        b.bill_code ||
-        ''
-      );
-
+      return 0;
     });
 
 
@@ -641,6 +648,7 @@ function HomePage() {
           }
 
           onBlur={(e) => {
+
             if (
               !e.currentTarget.contains(
                 e.relatedTarget
@@ -648,6 +656,7 @@ function HomePage() {
             ) {
               setSearchOpen(false);
             }
+
           }}
         >
 
@@ -692,7 +701,6 @@ function HomePage() {
           {searchOpen && (
 
             <div className="searchDropdown">
-
 
               <p className="searchLabel">
                 Search by
@@ -764,13 +772,9 @@ function HomePage() {
 
                     <div className="searchHint">
 
-                      <div>
-
-                        <strong>
-                          Loading parliamentary data...
-                        </strong>
-
-                      </div>
+                      <strong>
+                        Loading parliamentary data...
+                      </strong>
 
                     </div>
 
@@ -789,8 +793,7 @@ function HomePage() {
                           </strong>
 
                           <p>
-                            Make sure your backend
-                            is running.
+                            Could not reach the Capitoll API.
                           </p>
 
                         </div>
@@ -799,8 +802,6 @@ function HomePage() {
 
                     )}
 
-
-                  {/* MPs */}
 
                   {!loadingData &&
                     !dataError &&
@@ -836,6 +837,7 @@ function HomePage() {
                                 👤
                               </span>
 
+
                               <div>
 
                                 <strong>
@@ -843,18 +845,15 @@ function HomePage() {
                                 </strong>
 
                                 <p>
-
-                                  {
-                                    mp.riding_name
-                                  }
+                                  {mp.riding_name}
 
                                   {mp.party
                                     ? ` • ${mp.party}`
                                     : ''}
-
                                 </p>
 
                               </div>
+
 
                               <span className="arrow">
                                 →
@@ -864,28 +863,10 @@ function HomePage() {
 
                           ))}
 
-
-                        {category === 'MPs' &&
-                          filteredMps.length === 0 && (
-
-                            <div className="searchHint">
-
-                              <div>
-                                <strong>
-                                  No MPs found
-                                </strong>
-                              </div>
-
-                            </div>
-
-                          )}
-
                       </div>
 
                     )}
 
-
-                  {/* Bills */}
 
                   {!loadingData &&
                     !dataError &&
@@ -967,35 +948,10 @@ function HomePage() {
 
                           })}
 
-
-                        {category === 'Bills' &&
-                          filteredBills.length === 0 && (
-
-                            <div className="searchHint">
-
-                              <div>
-
-                                <strong>
-                                  No bills found
-                                </strong>
-
-                                <p>
-                                  Try a bill number
-                                  like C-10.
-                                </p>
-
-                              </div>
-
-                            </div>
-
-                          )}
-
                       </div>
 
                     )}
 
-
-                  {/* Ridings */}
 
                   {!loadingData &&
                     !dataError &&
@@ -1031,6 +987,7 @@ function HomePage() {
                                 📍
                               </span>
 
+
                               <div>
 
                                 <strong>
@@ -1040,7 +997,6 @@ function HomePage() {
                                 </strong>
 
                                 <p>
-
                                   {
                                     riding.mp_name
                                   }
@@ -1048,10 +1004,10 @@ function HomePage() {
                                   {riding.party
                                     ? ` • ${riding.party}`
                                     : ''}
-
                                 </p>
 
                               </div>
+
 
                               <span className="arrow">
                                 →
@@ -1060,22 +1016,6 @@ function HomePage() {
                             </button>
 
                           ))}
-
-
-                        {category === 'Ridings' &&
-                          filteredRidings.length === 0 && (
-
-                            <div className="searchHint">
-
-                              <div>
-                                <strong>
-                                  No ridings found
-                                </strong>
-                              </div>
-
-                            </div>
-
-                          )}
 
                       </div>
 
@@ -1091,11 +1031,9 @@ function HomePage() {
 
                       <div className="searchHint">
 
-                        <div>
-                          <strong>
-                            No results found
-                          </strong>
-                        </div>
+                        <strong>
+                          No results found
+                        </strong>
 
                       </div>
 
@@ -1114,53 +1052,60 @@ function HomePage() {
       </main>
 
 
-      <footer className="footer">
-
-        <div className="footerCopyright">
-          © 2026 Capitoll
-        </div>
-
-
-        <div className="footerCenter">
-
-          <div className="footerLinks">
-
-            <button type="button">
-              About
-            </button>
-
-            <span>•</span>
-
-            <button type="button">
-              Data Sources
-            </button>
-
-            <span>•</span>
-
-            <button type="button">
-              Privacy
-            </button>
-
-          </div>
-
-
-          <p className="footerNotice">
-            Parliamentary, riding, and MP data is drawn
-            from public sources. Capitoll aims to keep
-            information current, but accuracy,
-            completeness, and availability are not guaranteed.
-          </p>
-
-        </div>
-
-
-        <div className="footerHackathon">
-          Built for Hack the Hill III 🇨🇦
-        </div>
-
-      </footer>
+      <SharedFooter />
 
     </div>
+  );
+}
+
+
+function SharedFooter() {
+  return (
+    <footer className="footer">
+
+      <div className="footerCopyright">
+        © 2026 Capitoll
+      </div>
+
+
+      <div className="footerCenter">
+
+        <div className="footerLinks">
+
+          <button type="button">
+            About
+          </button>
+
+          <span>•</span>
+
+          <button type="button">
+            Data Sources
+          </button>
+
+          <span>•</span>
+
+          <button type="button">
+            Privacy
+          </button>
+
+        </div>
+
+
+        <p className="footerNotice">
+          Parliamentary, riding, and MP data is drawn
+          from public sources. Capitoll aims to keep
+          information current, but accuracy,
+          completeness, and availability are not guaranteed.
+        </p>
+
+      </div>
+
+
+      <div className="footerHackathon">
+        Built for Hack the Hill III 🇨🇦
+      </div>
+
+    </footer>
   );
 }
 
